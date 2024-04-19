@@ -326,9 +326,9 @@ public:
       return ;
     }
 
-    file.write("\n<script> alert(", strlen("\n<script> alert(")).write(
+    file.write("\n<script> alert(\"", strlen("\n<script> alert(\"")).write(
       msg, std::char_traits<char>::length(msg)).write(
-        ")</script>\n", strlen(")</script>\n"));
+        "\")</script>\n", strlen("\")</script>\n"));
 
     file.close();
   }

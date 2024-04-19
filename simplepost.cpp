@@ -25,7 +25,6 @@
 #include <new> /* bad_alloc exception */
 #include <forward_list>
 
-#include "codes.hpp"
 #include "html_src/file_change.cpp"
 
 #define WEBSERVERPORT    8888
@@ -176,6 +175,16 @@ void add_session_cookie (struct Session *session,
     fprintf (stderr,
              "Failed to set session cookie header!\n");
   }
+}
+
+void panicTerminateDaemon(
+  void* cls, const char* file, 
+  unsigned int line_num, const char* info)
+{
+  fprintf(stderr, "in %s:%u error : %s", file, line_num, info);
+  MHD_Daemon* daemon = (MHD_Daemon*) cls;
+  if (!daemon)
+    MHD_stop_daemon(daemon);
 }
 
 enum MHD_Result send_page(
@@ -853,6 +862,8 @@ enum MHD_Result OpenNewConnForSignUp(unsigned short PORT)
     fprintf(stderr, "Daemon on port %d failed", static_cast<int>(PORT));
     return MHD_NO;
   }
+
+  MHD_set_panic_func(&panicTerminateDaemon, (void*)daemon);
 
   while(continue_signup_webserver.load())
   {
