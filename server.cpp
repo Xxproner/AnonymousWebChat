@@ -251,30 +251,20 @@ enum MHD_Result send_page(
   return ret;
 }
 
-
-void FillSignUp(Participant& chat_member, const char* key, const char* data)
+int PossibleCharacters(const char* c_str, size_t size)
 {
-  if (strcmp(key, "name") == 0)
+  while (size != 0)
   {
-    chat_member.name_.assign(data);
-  } else if (strcmp(key, "key word") == 0)
-  {
-    chat_member.key_word_.assign(data);
-  } else if (strcmp(key, "info") == 0)
-  {
-    chat_member.info_.assign(data);
+    --size;
+    if (!isalpha(data[size]) && !isdigit(data[size]))
+    {
+      con_info->session->STATUS_CODE = MHD_HTTP_BAD_REQUEST;
+      return MHD_NO;
+      // addition info
+    }
   }
-}
-
-void FillSignIn(Participant& chat_member, const char* key, const char* data)
-{
-  if (strcmp(key, "name") == 0)
-  {
-    chat_member.name_.assign(data);
-  } else if (strcmp(key, "key word") == 0)
-  {
-    chat_member.key_word_.assign(data);
-  }
+  
+  return MHD_YES;
 }
 
 static enum MHD_Result iterate_post (
@@ -292,11 +282,16 @@ static enum MHD_Result iterate_post (
 
   // !! java script should check size and format !! // 
 
-
   if (0 == strcmp (key, "name"))
   {
     if ((size > 0) && (size <= MAXNAMESIZE))
     {
+      if (PossibleCharacters(data, size) != MHD_YES)
+      {
+        con_info->session->STATUS_CODE = MHD_HTTP_BAD_REQUEST;
+        return MHD_NO;
+      }
+
       con_info->session->chat_member.name_.assign(data);
     } else 
     {
@@ -307,6 +302,11 @@ static enum MHD_Result iterate_post (
   {
     if ((size > 0) && (size <= MAXNAMESIZE))
     {
+      if (PossibleCharacters(data, size) != MHD_YES)
+      {
+        con_info->session->STATUS_CODE = MHD_HTTP_BAD_REQUEST;
+        return MHD_NO;
+      }
       con_info->session->chat_member.key_word_.assign(data);
 
     }else 
@@ -323,18 +323,13 @@ static enum MHD_Result iterate_post (
   return MHD_YES;
 } 
 
-static enum MHD_Result iterate_post_for_signup(
+/*static enum MHD_Result iterate_post_for_signup(
               void *coninfo_cls, enum MHD_ValueKind kind, const char *key,
               const char *filename, const char *content_type,
               const char *transfer_encoding, const char *data, uint64_t off,
               size_t size)
 {
   expand_withFILE_con_info_struct *con_info = (expand_withFILE_con_info_struct *)coninfo_cls;
-  (void) kind;               /* Unused. Silent compiler warning. */
-  (void) filename;           /* Unused. Silent compiler warning. */
-  (void) content_type;       /* Unused. Silent compiler warning. */
-  (void) transfer_encoding;  /* Unused. Silent compiler warning. */
-  (void) off;                /* Unused. Silent compiler warning. */
 
   // !! java script should check size and format !! // 
 
@@ -393,7 +388,7 @@ static enum MHD_Result iterate_post_for_signup(
   }
 
   return MHD_YES;
-} 
+} */
 
 void request_completed (void *cls,
                             struct MHD_Connection *connection,
@@ -587,7 +582,7 @@ static enum MHD_Result answer_to_connection (
       strcasecmp(http_content_type, "application/json") == 0)
   {
     const char* bad_request = 
-      "json is not keep this server. We are busy on it!";
+      "<html><body>json is not keep this server. We are busy on it!</html></body>";
     session->STATUS_CODE = MHD_HTTP_BAD_REQUEST;
     return send_page(connection, session, bad_request, MHD_RESPMEM_MUST_COPY);
   }
@@ -640,7 +635,6 @@ static enum MHD_Result answer_to_connection (
       return MHD_NO;
     }
 
-
     if (db_code_exec != 0)
     {
       std::string copied_name = HTML::CopyFileChangeTAGvalue(SIGNIN_PAGE,
@@ -661,6 +655,7 @@ static enum MHD_Result answer_to_connection (
   }
 
   /* unsupported HTTP METHOD */
+  session->STATUS_CODE = MHD_HTTP_BAD_REQUEST;
   return send_page (connection, session, errorpage);
 }
 
@@ -850,7 +845,7 @@ int main(int argc, char* argv[])
   return 0;
 }
 
-// in general, we need other iterate post
+/*// in general, we need other iterate post
 
 enum MHD_Result answer_to_signup(
   void* cls, struct MHD_Connection* connection, 
@@ -974,7 +969,6 @@ enum MHD_Result answer_to_signup(
     return send_page(connection, session, page);
   }
 
-  /* unsupported HTTP METHOD */
   return send_page (connection, session, errorpage);
 }
 
@@ -1039,4 +1033,4 @@ enum MHD_Result OpenNewConnForSignUp(unsigned short PORT)
   // send future value about webserver is ready to detach
 
   return MHD_YES;
-}
+}*/
