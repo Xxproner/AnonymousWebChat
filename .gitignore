@@ -5,3 +5,7 @@ html_src/*_Cokkies.html
 a.out
 trash/*
 users.db
+
+ip2location_db/*
+
+serverSIGNUP.cpp

@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <sys/select.h>
 #include <sys/socket.h>
+#include <netdb.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -12,8 +13,10 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
+#include <arpa/inet.h>
 
-#include <microhttpd.h>
+#include "microhttpd.h"
+#include <IP2Location.h>
 
 #include <algorithm>
 #include <iostream>
@@ -26,15 +29,18 @@
 #include <new> /* std::bad_alloc exception */
 #include <forward_list>
 #include <functional> /* std::hash */
+#include <cassert>
 
 #include "html_src/file_change.cpp"
 #include "serverDB.cpp"
 #include "Participant.cpp"
 #include "boost/lexical_cast.hpp"
+
 using boost::lexical_cast;
 using boost::bad_lexical_cast;
 
-// #include "LyraArgs.hpp"
+#include "LyraArgs.hpp"
+
 
 #define CONCAT(a, b) (a"" b) // For external macros
 
@@ -65,8 +71,6 @@ const char *errorpage =
 #define OPAQUE "11733b200778ce33060f31c9af70a870ba96ddd4"
 
 const char* NOT_FOUND_ERROR = "<html><body>Not found!</body></html>";
-
-// with cokkies or with ban
 
 serverDB partpants_list;
 
@@ -108,56 +112,6 @@ struct connection_info_struct
   ~connection_info_struct() = default;
 
 };
-
-struct expand_details
-{
-  static constexpr size_t hash_size = sizeof(size_t); 
-  constexpr static const char* file_prefix = "../static/";
-  static constexpr size_t file_prefix_size = strlen(file_prefix);
-};
-
-struct expand_withFILE_con_info_struct : public connection_info_struct
-{
-  char filename[expand_details::file_prefix_size + expand_details::hash_size * 8 + 4 + 1]; // prefix + hash + .jpg + '\0'
-  std::ofstream icon_image;
-  bool file_loaded = false;
-
-  static void GenerateFileName(char* dest, const char* sed) 
-  {
-    if (!sed)
-      throw std::runtime_error("Invalid sed!");
-
-    std::string hash = std::to_string(std::hash<std::string>()(std::string{sed}));
-    strcpy(dest, expand_details::file_prefix);
-    hash.copy(dest + expand_details::file_prefix_size, expand_details::hash_size);
-    strcpy(dest + expand_details::file_prefix_size + expand_details::hash_size, ".jpg"); // need '\0' at end? 
-  }
-
-  static void GenerateFileNameUntilUniq(char* dest, const char* sed)
-  {
-    struct stat buf;
-    GenerateFileName(dest, sed);
-    int file_exists = stat(dest, &buf);
-    while (file_exists == 0)
-    {
-      GenerateFileName(dest, sed);
-      file_exists = stat(dest, &buf);
-    }
-
-    if (file_exists != ENOENT)
-      throw std::runtime_error("Internal error!");
-  }
-
-  expand_withFILE_con_info_struct() = default;
-
-  ~expand_withFILE_con_info_struct()
-  {
-    if (icon_image.is_open())
-      icon_image.close();
-  }
-};
-
-int CreateHTMLforParticipant(const expand_withFILE_con_info_struct*);
 
 void add_session_cookie (struct Session *session,
                     struct MHD_Response *response)
@@ -256,12 +210,9 @@ int PossibleCharacters(const char* c_str, size_t size)
   while (size != 0)
   {
     --size;
-    if (!isalpha(data[size]) && !isdigit(data[size]))
-    {
-      con_info->session->STATUS_CODE = MHD_HTTP_BAD_REQUEST;
+    if (!isalpha(c_str[size]) && !isdigit(c_str[size]) && 
+       c_str[size] != ' ' && c_str[size] != '_')
       return MHD_NO;
-      // addition info
-    }
   }
   
   return MHD_YES;
@@ -323,72 +274,6 @@ static enum MHD_Result iterate_post (
   return MHD_YES;
 } 
 
-/*static enum MHD_Result iterate_post_for_signup(
-              void *coninfo_cls, enum MHD_ValueKind kind, const char *key,
-              const char *filename, const char *content_type,
-              const char *transfer_encoding, const char *data, uint64_t off,
-              size_t size)
-{
-  expand_withFILE_con_info_struct *con_info = (expand_withFILE_con_info_struct *)coninfo_cls;
-
-  // !! java script should check size and format !! // 
-
-  if (0 == strcmp (key, "name"))
-  {
-    if ((size > 0) && (size <= MAXNAMESIZE))
-    {
-      con_info->session->chat_member.name_.assign(data);
-    } else 
-    {
-      con_info->session->STATUS_CODE = MHD_HTTP_BAD_REQUEST;
-      return MHD_NO;
-    }
-  } else if (0 == strcmp(key, "key word"))
-  {
-    if ((size > 0) && (size <= MAXNAMESIZE))
-    {
-      con_info->session->chat_member.key_word_.assign(data);
-
-    }else 
-    {
-      con_info->session->STATUS_CODE = MHD_HTTP_BAD_REQUEST;
-      return MHD_NO;
-    }
-  } else if (0 == strcmp(key, "info") )
-  {
-    if ((size > 0))
-    {
-      con_info->session->chat_member.info_.assign(data);
-    }
-
-  } else if (0 == strcmp(key, "avatar_file"))
-  {
-    if (size > 0)
-    {
-      if (!con_info->icon_image.is_open())
-      {
-        expand_withFILE_con_info_struct::GenerateFileNameUntilUniq(
-          con_info->filename, filename);
-        con_info->icon_image.open(con_info->filename, std::ios_base::out | std::ios_base::binary);
-        if (!con_info->icon_image.is_open())
-        {
-          std::string str_error = "Internal error! ";
-          str_error.append(strerror(errno));
-          throw std::runtime_error(str_error);
-        }
-        con_info->file_loaded = true;
-      }
-
-      con_info->icon_image.write(data, size);
-    }
-  } else 
-  {
-    con_info->session->STATUS_CODE = MHD_HTTP_BAD_REQUEST;
-    return MHD_NO;
-  }
-
-  return MHD_YES;
-} */
 
 void request_completed (void *cls,
                             struct MHD_Connection *connection,
@@ -413,13 +298,6 @@ void request_completed (void *cls,
   }
 }
 
-
-
-enum MHD_Result AccessConnection(void* cls,
-  const struct sockaddr* addr, socklen_t addlen)
-{
-  return MHD_YES;
-}
 
 struct Session* get_session (struct MHD_Connection *connection)
 {
@@ -470,7 +348,49 @@ struct Session* get_session (struct MHD_Connection *connection)
   return ret;
 }
 
-enum MHD_Result DGVerificate(struct MHD_Connection* connection, struct Session* session)
+std::string Py_SHA256(const char* password)
+{
+  // required!
+  return "";
+}
+
+enum MHD_Result BasicVerificate(struct MHD_Connection* connection)
+{
+  enum MHD_Result ret;
+  struct MHD_Response* response = nullptr;
+  char *user = nullptr;
+  char *pass = nullptr;
+  int fail;
+  
+  user = MHD_basic_auth_get_username_password (connection,
+                                               &pass);
+
+  std::string hashing_password = Py_SHA256(pass);
+  fail = ( (NULL == user) ||
+           (0 != strcmp (hashing_password.c_str(), "d0949375b349696a1d9f14b2a9f119b396bd877ba0541f897a65557b8efe9305") ) );
+  
+  if (NULL != user)
+    MHD_free (user);
+  if (NULL != pass)
+    MHD_free (pass);
+  if (fail)
+  {
+    const char *page = "<html><body>Go away.</body></html>";
+    response =
+      MHD_create_response_from_buffer (strlen (page), (void *) page,
+                                       MHD_RESPMEM_PERSISTENT);
+    ret = MHD_queue_basic_auth_fail_response (connection,
+                                              "my realm",
+                                              response);
+    MHD_destroy_response(response);
+
+    return MHD_NO;
+  }
+
+  return MHD_YES;
+}
+
+enum MHD_Result DGVerificate(struct MHD_Connection* connection)
 {
   enum MHD_Result ret;
   struct MHD_Response* response = nullptr;
@@ -490,7 +410,7 @@ enum MHD_Result DGVerificate(struct MHD_Connection* connection, struct Session* 
                                          (int)MHD_NO,
                                          MHD_DIGEST_ALG_SHA256);
     MHD_destroy_response(response);
-    return ret; // username is empty ?
+    return MHD_NO;
   }
 
   ret = (MHD_Result)MHD_digest_auth_check2 (connection,
@@ -515,11 +435,10 @@ enum MHD_Result DGVerificate(struct MHD_Connection* connection, struct Session* 
                      (ret == MHD_INVALID_NONCE) ? MHD_YES : MHD_NO,
                                          MHD_DIGEST_ALG_SHA256);
     MHD_destroy_response(response);
-    return ret;
+    return MHD_NO;
   }
 
-  session->verificate = true;
-  return ret ;
+  return MHD_YES;
 }
 
 static enum MHD_Result answer_to_connection (
@@ -528,6 +447,8 @@ static enum MHD_Result answer_to_connection (
           const char *version, const char *upload_data,
           size_t *upload_data_size, void **con_cls)
 {
+  (void) cls;
+
   enum MHD_Result ret;
   struct Session* session = nullptr;
   struct connection_info_struct *con_info = (struct connection_info_struct *)*con_cls;
@@ -587,13 +508,16 @@ static enum MHD_Result answer_to_connection (
     return send_page(connection, session, bad_request, MHD_RESPMEM_MUST_COPY);
   }
 
-
   // if (!session->verificate)
-  //   if (DGVerificate(connection, session) == MHD_NO)
-  //     return MHD_NO;
+  // {
+  //   if (DGVerificate(connection) == MHD_YES)
+  //   {
+  //     session->verificate = true;
+  //   }else {
+  //       return MHD_NO;
+  //   }
+  // }
 
-  // if (!session->verificate)
-  //   return MHD_YES; // not verificate
 
   char page[64] = SIGNIN_PAGE;
   if (0 == strcmp (method, MHD_HTTP_METHOD_POST))
@@ -650,9 +574,7 @@ static enum MHD_Result answer_to_connection (
   }
 
   if (0 == strcmp (method, MHD_HTTP_METHOD_GET))
-  {
     return send_page(connection, session, page);
-  }
 
   /* unsupported HTTP METHOD */
   session->STATUS_CODE = MHD_HTTP_BAD_REQUEST;
@@ -708,7 +630,6 @@ int main(int argc, char* argv[])
     printf("-p [port]. Default port is `8888'\n");
     printf("--debug [debug flag]. Default is disable\n");
     printf("--A [MHD_AcceptPolicyCallback arg]. Default value is `NULL'\n");
-    printf("--H [MHD_AccessHandlerCallback arg]. Default value is `NULL'\n");
     printf("-------------------------Configuration--------------------------\n");
   };
 
@@ -716,11 +637,11 @@ int main(int argc, char* argv[])
   size_t duration = -1;
   unsigned short WEBSERVERPORT = 8888;
   bool debug = false;
-  char* accept_arg = nullptr;
-  char* handle_arg = nullptr;
+  std::string accept_arg;
+  std::string handle_arg;
 
   char opt;
-  while ((opt = getopt(argc, argv, ":t:p:dA:H:")) != -1)
+  while ((opt = getopt(argc, argv, ":t:p:dA:")) != -1)
   {
     switch (opt)
     {
@@ -735,14 +656,7 @@ int main(int argc, char* argv[])
         debug = true;
         break;
       case 'A':
-        accept_arg = strdup(optarg);
-        if (!accept_arg)
-          throw std::bad_alloc();
-        break;
-      case 'H':
-        handle_arg = strdup(optarg);
-        if (!handle_arg)
-          throw std::bad_alloc();
+        accept_arg = optarg;
         break;
       case ':':
       case '?':
@@ -750,11 +664,6 @@ int main(int argc, char* argv[])
         return 1;
     }
   }
-
-  // lyra::args(argc, argv);
-
-  // if (!args.begin())
-    // PrintHelp();
 
   struct MHD_Daemon *daemon;
 
@@ -764,9 +673,9 @@ int main(int argc, char* argv[])
     return EXIT_FAILURE; 
   } // else SUCCESS
 
-  daemon = MHD_start_daemon (MHD_USE_DEBUG,
-                             WEBSERVERPORT, &AccessConnection, accept_arg,
-                             &answer_to_connection, handle_arg,
+  daemon = MHD_start_daemon (MHD_USE_DEBUG, 
+                             WEBSERVERPORT, NULL, NULL,
+                             &answer_to_connection, reinterpret_cast<void*>(&handle_arg[0]),
                              MHD_OPTION_CONNECTION_TIMEOUT, 15u,
                              MHD_OPTION_NOTIFY_COMPLETED, &request_completed,
                              NULL, MHD_OPTION_END);
@@ -837,200 +746,6 @@ int main(int argc, char* argv[])
   }
 
   MHD_stop_daemon (daemon);
-  if (accept_arg)
-    free(accept_arg); 
-  if (handle_arg)
-    free(handle_arg);
-  
   return 0;
 }
 
-/*// in general, we need other iterate post
-
-enum MHD_Result answer_to_signup(
-  void* cls, struct MHD_Connection* connection, 
-  const char* url, const char* method, const char* version,
-  const char* upload_data, size_t* upload_data_size, void** con_cls)
-{
-  
-  enum MHD_Result ret;
-  struct Session* session = nullptr;
-  expand_withFILE_con_info_struct *con_info = (expand_withFILE_con_info_struct *)*con_cls;
-
-  if (!con_info)
-  {
-    expand_withFILE_con_info_struct *con_info = reinterpret_cast<expand_withFILE_con_info_struct*>(
-      ::operator new(sizeof(expand_withFILE_con_info_struct), std::nothrow));
-    if (!con_info)
-      return MHD_NO;
-
-    con_info->session = nullptr;
-    if (0 == strcmp (method, "POST"))
-    {
-      con_info->postprocessor =
-        MHD_create_post_processor (connection, POSTBUFFERSIZE,
-                                   iterate_post_for_signup, (void *) con_info);
-
-      if (NULL == con_info->postprocessor)
-      {
-        fprintf(stderr, "MHD_create_post_processor() failed: %s", strerror(errno));
-        return MHD_NO;
-      }
-
-      con_info->connectiontype = POST;
-    } else 
-      con_info->connectiontype = GET;
-    
-    *con_cls = (void *) con_info;
-
-    return MHD_YES;
-  }
-
-  if (!con_info->session)
-  {
-    con_info->session = get_session(connection);
-    if (!con_info->session)
-    {
-      fprintf (stderr, "Failed to setup session for `%s'\n",
-               url);
-      return MHD_NO;
-    }
-  }
-
-  con_info->session->start_ = std::chrono::system_clock::now();
-  con_info->session->STATUS_CODE = MHD_HTTP_OK;
-  session = con_info->session;
-
-  char page[64] = SIGNUP_PAGE;
-
-  if (0 == strcmp (method, MHD_HTTP_METHOD_POST))
-  {
-    MHD_post_process (con_info->postprocessor, upload_data,
-                        *upload_data_size);
-
-    if (*upload_data_size != 0)
-    {
-      *upload_data_size = 0;
-      return MHD_YES;
-    }
-
-    if (session->STATUS_CODE != MHD_HTTP_OK)
-    {
-      std::string name_copied = HTML::CopyFileChangeTAGvalue(page,
-         {{"name", session->chat_member.name_.c_str()},
-          {"key-word", session->chat_member.key_word_.c_str()},
-          {"info", session->chat_member.info_.c_str()}});
-
-      HTML::AddJSAlert(name_copied.c_str(), "Wrong input data!");
-      session->STATUS_CODE = MHD_HTTP_BAD_REQUEST;
-      return send_page(connection, session, name_copied.c_str());
-    }
-
-    MHD_destroy_post_processor(con_info->postprocessor);
-    con_info->postprocessor = nullptr;
-
-    method = MHD_HTTP_METHOD_GET;
-
-    int db_code_exec = 0; 
-    try
-    {
-      db_code_exec =       
-        partpants_list.AddParticipant(con_info->session->chat_member);
-    } catch(const std::exception& ex)
-    {
-      // send internal error code to client;
-      std::cerr << "AddParticipant() failed! " << 
-        ex.what() << std::endl;
-
-      session->STATUS_CODE = MHD_HTTP_INTERNAL_SERVER_ERROR;
-      return send_page(connection, session, errorpage);
-    }
-    
-    if (db_code_exec != 0) // from data base 
-    {
-      std::string name_copied = HTML::CopyFileChangeTAGvalue(page,
-         {{"name", session->chat_member.name_.c_str()},
-          {"key-word", session->chat_member.key_word_.c_str()},
-          {"info", session->chat_member.info_.c_str()}});
-
-      HTML::AddJSAlert(name_copied.c_str(), "The name has already taken!");
-      session->STATUS_CODE = MHD_HTTP_CONFLICT;
-      strncpy(page, name_copied.c_str(), sizeof(page));
-    } else 
-    {
-      CreateHTMLforParticipant(con_info);
-      // redaction success page
-      strncpy(page, SUCCESS, sizeof(page));
-    }
-  }
-
-  if (0 == strcmp (method, MHD_HTTP_METHOD_GET))
-  {
-    return send_page(connection, session, page);
-  }
-
-  return send_page (connection, session, errorpage);
-}
-
-int CreateHTMLforParticipant(const expand_withFILE_con_info_struct* con_info)
-{
-  char* html = nullptr;
-  const Participant& participant = con_info->session->chat_member;
-  char image_on_default[] = "def_image.jpg";
-
-  char* filename = nullptr;
-  std::ofstream file;
-  if (con_info->file_loaded)
-  {
-    filename = strdup(con_info->filename);
-    file.open(filename, std::ios_base::out | std::ios_base::binary);
-  }
-  else 
-    filename = strdup("def_image.jpg");
-
-  if (!filename)
-      throw std::bad_alloc();
-
-  asprintf(&html, HTML::TEMPLATE_NEW_PAGE, filename, participant.name_.c_str(), 
-    participant.info_.c_str());
-  if (!html)
-    throw std::bad_alloc();
-
-  file << html;
-
-  if (file.is_open())
-    file.close();
-  free(filename);
-  return 0;
-}
-
-enum MHD_Result OpenNewConnForSignUp(unsigned short PORT)
-{
-  struct MHD_Daemon* daemon;
-  enum MHD_Result ret;
-
-  daemon = MHD_start_daemon(
-      MHD_USE_INTERNAL_POLLING_THREAD | MHD_USE_ERROR_LOG, PORT,
-      NULL, NULL, &answer_to_signup, NULL, 
-      MHD_OPTION_NOTIFY_COMPLETED, &request_completed,
-      NULL, MHD_OPTION_END);
-
-  if (daemon == NULL)
-  {
-    fprintf(stderr, "Daemon on port %d failed", static_cast<int>(PORT));
-    return MHD_NO;
-  }
-
-  MHD_set_panic_func(&panicTerminateDaemon, (void*)daemon);
-
-  while(continue_signup_webserver.load())
-  {
-    // waiting normal terminating
-  }
-
-  MHD_stop_daemon(daemon);
-
-  // send future value about webserver is ready to detach
-
-  return MHD_YES;
-}*/

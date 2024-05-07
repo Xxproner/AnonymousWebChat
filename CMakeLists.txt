@@ -4,7 +4,6 @@ project(server)
 
 set (SOURCES
 	server.cpp
-	# boost/lexiral_cast.hpp
 	# include/LyraArgs.hpp
 	)
 
