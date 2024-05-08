@@ -64,6 +64,17 @@ private:
     return 0;
   }
 
+  static int CountRecords_inTable(void* data, int clm_num, char** fields, char** clm_names)
+  {
+    if (std::char_traits<char>::compare(clm_names[0], "NUM", 3) == 0 && 
+      clm_num == 1)
+    {
+      *reinterpret_cast<size_t*>(data) = static_cast<size_t>(atoi(fields[0]));
+    } else 
+      return 1;
+    return 0;
+  }
+
 public:
   serverDB() = default;
 
@@ -82,6 +93,16 @@ public:
       sqlite3_free(status);
       throw ex;
     }
+
+    const char* count_cm = "select count(*) as 'NUM' from users";
+    if (this->execute(count_cm, &serverDB::CountRecords_inTable, reinterpret_cast<void*>(&users_num), &status) != SQLITE_OK)
+    {
+      server_db_internal_error ex = server_db_internal_error(status);
+      sqlite3_free(status);
+      throw ex;
+    }
+
+    users_num += 1; // next id
 
     return 0;
   }
@@ -112,7 +133,7 @@ public:
       return 1; // name already taken
 
     asprintf(&exec_cm, "INSERT INTO users VALUES(%u, \"%s\", \"%s\");",
-      ++users_num, member_info.name_.c_str(), member_info.key_word_.c_str());
+      users_num++, member_info.name_.c_str(), member_info.key_word_.c_str());
 
     if (!exec_cm)
       throw std::bad_alloc();

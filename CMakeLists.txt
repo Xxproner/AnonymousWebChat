@@ -10,10 +10,9 @@ set (SOURCES
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-# find_package( Boost 1.8.3 COMPONENTS lexical_cast REQUIRED )
 
+# find_package( Boost 1.8.3 COMPONENTS lexical_cast REQUIRED )
 # include_directories( ${Boost_INCLUDE_DIR} )
-# include_directories(~/boost/include)
 
 add_compile_options(-g3)
 
@@ -26,11 +25,16 @@ add_compile_definitions(HTML_SRC_PATH="${CMAKE_SOURCE_DIR}/html_src/")
 add_executable(main ${SOURCES})
 
 target_include_directories(main PRIVATE ${CMAKE_SOURCE_DIR}/include/)
+
+# I have boost then cmake cannot find it 
 target_include_directories(main PRIVATE ${CMAKE_SOURCE_DIR}/../boost_1_83_0/include/boost/)
+# Use command below instead upper one 
+# and uncomment find_package( Boost [YOUR VERSION ])
 
 # target_link_libraries( main LINK_PUBLIC ${Boost_LIBRARIES} )
 
-# target_link_libraries( main LINK_PUBLIC ${Boost_LIBRARIES} )
+
+
 target_link_libraries(main PRIVATE sqlite3)
 target_link_libraries(main PRIVATE microhttpd)
 target_link_libraries(main PRIVATE Threads::Threads)

@@ -288,7 +288,10 @@ void request_completed (void *cls,
   if (con_info)
   {
     if (con_info->session)
+    {
       con_info->session->rc--;
+      con_info->session->STATUS_CODE = MHD_HTTP_OK;
+    }
     if (con_info->postprocessor)
     {
       MHD_destroy_post_processor (con_info->postprocessor);
@@ -318,7 +321,7 @@ struct Session* get_session (struct MHD_Connection *connection)
 
     if (found_iter != sessionsList.end())
     {
-      (*found_iter)->STATUS_CODE = MHD_HTTP_OK;
+      // (*found_iter)->STATUS_CODE = MHD_HTTP_OK;
       return (*found_iter);
     }
   }
@@ -522,6 +525,8 @@ static enum MHD_Result answer_to_connection (
   char page[64] = SIGNIN_PAGE;
   if (0 == strcmp (method, MHD_HTTP_METHOD_POST))
   {
+    // con_info->session->STATUS_CODE = MHD_HTTP_OK;
+
     MHD_post_process (con_info->postprocessor, upload_data,
                         *upload_data_size);
     if (*upload_data_size != 0)
@@ -689,7 +694,7 @@ int main(int argc, char* argv[])
   
   try
   {
-    // signup_thread = std::thread(&OpenNewConnForSignUp, 9000);
+    signup_thread = std::thread(&OpenNewConnForSignUp, 9000);
   } catch(const std::exception& ex) 
   {
     std::cerr << "std::thread() failed(" << ex.what() << ")"; 
@@ -748,4 +753,7 @@ int main(int argc, char* argv[])
   MHD_stop_daemon (daemon);
   return 0;
 }
+
+
+#include "serverSIGNUP.cpp"
 
