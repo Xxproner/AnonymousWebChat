@@ -2,6 +2,8 @@
 
 <html>
 <head>
+	<link rel="icon" href="static/favicon.ico" type="image/x-icon">
+
 	<meta charset="utf-8">
 	<style>
 		body {
@@ -34,21 +36,22 @@
 		We have three rules here: no insults, no 18+, no rules. Have fun. 
 	</p>
 
-	<img src="Hacker" alt="We is for free opinion"/>
+	<img src="static/def_image.jpg" alt="We is for free opinion"
+		height="200"/>
 
 	<p><br/>You should sigh up with the <strong>animal pseudo</strong></p>
 
-	<form action="/" method="POST" name='sign in form'>
+	<form action="sign_in" method="POST" name='sign in form'>
   <div>
     <label for="username">Input your totel animal</label>
-    <input type="text" name="name" id='username' value='' required/>
+    <input type="text" name="name" id="username" value="" required/>
    </div>
    <div>
     <label for="password">Key word</label>
-    <input type="password" name="key word" id='key word' value='' required/>
+    <input type="password" name="key-word" id="key-word" value="" required/>
   </div>
   <div>
-    <button type='submit' id='button'>Join to chat! </button>
+    <button type="submit" id="button">Join to chat! </button>
   </div>
   
   <!-- <script src="js/check.js"></script> -->
@@ -56,7 +59,7 @@
   </form>
 
   <label> The first time? Sign up with us!</label>
-  <a href='http://localhost:9000'>
+  <a href='sign_up.html'>
   <div>
   	<button type='submit' id='button sign up'>Sign up</button>
 	</div>
