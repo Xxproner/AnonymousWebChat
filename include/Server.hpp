@@ -3,19 +3,16 @@
 
 #include "microhttpd.h"
 
-#include <mutex>
-#include <forward_list>
-#include <deque>
+#include <memory>
+#include <set>
 
 #include "ServerCore.hpp"
 #include "ServerDB.hpp"
-#include "Participant.hpp"
-
 
 namespace HTTP
 {
 	enum {
-		GET,
+		GET = 0,
 		HEAD,
 		POST,
 		PUT,
@@ -70,54 +67,51 @@ namespace HTTP
 
 #define CONCAT(a, b) (a"" b) // For external macros
 
-typedef MHD_Result (*ParsePostData)(
-	MHD_Connection* conn, 
-	const char* data, 
-	size_t data_size);
+// =========================================================
+// ================== ResourceHash =========================
+// =========================================================
 
-struct SimplePostProcessor 
-{
-	char* buffer;
-	size_t post_buffer_size;
-	ParsePostData parser;
-	MHD_Connection* conn;
-	void* cls;
+// template <>
+// struct std::hash<std::pair<int, std::string>>
+// {
+// 	size_t operator()(const std::pair<int, std::string>& instance) const noexcept
+// 	{
+// 		auto CeaserAlgo = [](std::string& str, int step)
+// 		{
+// 	#warning "Overflow is possible"
+// 			std::transform(str.cbegin(), str.cend(), str.begin(),
+// 				[step](char ch){ return ch += step; });
+// 		};
 
-	SimplePostProcessor(struct MHD_Connection* _conn,
-		size_t _post_buffer_size,
-		ParsePostData _parser,
-		void* _cls);
+// 		std::string copy_string = instance.second;
+// 		CeaserAlgo(copy_string, instance.first);
 
-	// DELETED_COPY_CTOR(SimplePostProcessor)
+// 		return std::hash<std::string>()(copy_string);
+// 	};
+// };
 
-	~SimplePostProcessor() noexcept;
-};
+
+// =========================================================
+// ================== ending ResourceHash ==================
+// =========================================================
+
 
 
 class Server
 {
 public:
+	static constexpr std::array<const char*, 9> methods{
+		"GET", "HEAD", "POST", "PUT",  "DELETE", 
+		"CONNECT", "TRACE", "OPTIONS", "PATCH"};
+
 	template <typename... Args>
 	Server(
-			MHD_FLAG exec_flags
+		  MHD_FLAG exec_flags
 		, uint16_t port
-		, ServerCore::MHD_AcceptPolicyCallback* acceptCallback
-		, void* param1
-		, ServerCore::MHD_AccessHandlerCallback* accessCallback
+		, MHD_AcceptPolicyCallback acceptCallback
 		, void* param2
 		, Args... args);
 
-	static MHD_Result ReplyToOptionsMethod(MHD_Connection* connection);
-			
-	static MHD_Result BasicVerificate(struct MHD_Connection* connection);
-
-	static MHD_Result DGVerificate(struct MHD_Connection* connection);
-
-	Session* GetSession (struct MHD_Connection *connection);
-
-	void ExpireSession() noexcept;
-
-	// access to serverCore of server
 	const ServerCore& operator()() const { return server_core ; }
 	
 	ServerCore& operator()() { return server_core; }
@@ -125,24 +119,15 @@ public:
 	Server& operator=(const Server&) = delete;
 	Server(const Server&) = delete;
 
-	MHD_AcceptPolicyCallback ReplyToConnection;
+	static typename std::remove_pointer_t<MHD_AccessHandlerCallback> ReplyToConnection;
 
-	// chat configuration :
-	// ===========================================
-	constexpr static size_t POSTBUFFERSIZE = 512;
-	constexpr static size_t MAXNAMESIZE = 30;
-	constexpr static size_t MAXANSWERSIZE = 512;
-	constexpr static size_t MAXMEMBERSNUMBER = 10;
-	constexpr static size_t MAXACTIVEMEMBERS = 5; 
+	int CombMethod(std::string_view) const;
 
-	// ===========================================
-
-	static constexpr const char* PATH_TO_DB = CONCAT(DB_PATH, "/users.db");
 	static constexpr const char* SIGNUP_PAGE = CONCAT(HTML_SRC_PATH, "/sign_up.html");
 	static constexpr const char* SIGNIN_PAGE = CONCAT(HTML_SRC_PATH, "/sign_in.html");
 	static constexpr const char* SUCCESS_PAGE = CONCAT(HTML_SRC_PATH, "/chat.html");
 
-	static constexpr const char* NOT_FOUND_ERROR = "";
+	static constexpr const char* NOT_FOUND = "<html><body>Not found!</body></html>";
 	static constexpr const char *ERROR_PAGE = "";
 
 	static constexpr const char* EMPTY_RESPONSE = "";
@@ -151,67 +136,131 @@ public:
 	static constexpr const char* MY_SERVER = "kinkyServer";
 	~Server() noexcept;
 
-	serverDB partpants_list; // thread safety
-
 	constexpr bool is_working() const { return working; };
 
 	class Resource
 	{
 	public:
+		Resource(int _method, const char* url);
+
 		virtual MHD_Result operator()(void* cls, struct MHD_Connection* conn,
-			const char* url, const char* method,
 			const char* version, const char* upload_data,
-			size_t* upload_data_size, void** con_cls) = 0;
+			size_t* upload_data_size)  = 0;
+
+		virtual bool operator<(const Resource& that) const noexcept final
+		{
+			return strcmp(url, that.url) < 0;
+		}
+
+		virtual bool operator==(const Resource& that) const noexcept final
+		{
+			return !(*this < that) && !(that < *this);
+		}
+
+		// bool operator<(const std::string);
+
+		virtual ~Resource() noexcept;
+	public:
+		const int method;
+		const char*  url;
 	};
+
+	int RegisterResource(Resource* resource);
+
+	template<typename ...Args, 
+		typename std::enable_if<std::is_same<Args, std::add_pointer_t<Server::Resource>>::value>::type...>
+	int RegisterResource(Resource* resource, Args...);
+
+	int RegisterHTMLPage(const char* url, const char* file);
 
 private:
-	struct ResourceHash
+	// typedef std::pair<int, std::unique_ptr<Resource>> ResourceonMethod;
+
+	Resource* FindResource(int method, const std::string& url) ;
+	
+	// TODO: registation directory
+	class ResourceComp
 	{
-		size_t operator()(const std::pair<int, std::string>& instance);
+	public:
+		bool operator()(const std::unique_ptr<Resource>& lhs, 
+			const std::unique_ptr<Resource>& rhs) const noexcept
+		{
+			return *lhs.get() < *rhs.get();
+		};
+
+		bool operator()(const std::unique_ptr<Resource>& lhs,
+			const std::string& url) const noexcept
+		{
+			return strcmp(lhs.get()->url, url.c_str()) < 0;
+		}
+
+		bool operator()(const std::string& url,
+			const std::unique_ptr<Resource>& lhs) const noexcept
+		{
+			return strcmp(url.c_str(), lhs.get()->url) < 0;
+		}
+
+		bool operator()(const Resource& res,
+			const std::unique_ptr<Resource>& rhs) const noexcept
+		{
+			return strcmp(res.url, rhs.get()->url) < 0;
+		}
+
+		bool operator()(const std::unique_ptr<Resource>& lhs,
+			const Resource& res) const noexcept
+		{
+			return strcmp(lhs.get()->url, res.url) < 0;
+		}
+
+		using is_transparent = void;
 	};
 
+	typedef std::multiset<std::unique_ptr<Resource>,
+		ResourceComp> mResource;
+	 
+	mResource resources;
 
 	typedef MHD_Result(*ResourcePolicyCallback)(struct MHD_Connection* conn,
 		const char* url, const char* method, 
 		const char* version, const char* upload_data, 
 		size_t upload_data_size);
 
-	// only for post method
-	std::unordered_map<std::pair<int, std::string>, 
-		> resources;
-
-	int RegisterResource(int method, std::string_view url, 
-		MHD_Response* response);
+	MHD_Result SendNotFoundResponse(MHD_Connection* connection) const;
 
 private:	
 	bool working = false;
 
-	static const std::string HashBasicAuthCode;
+	// static const std::string HashBasicAuthCode;
 
-	static constexpr const char* OPAQUE = "11733b200778ce33060f31c9af70a870ba96ddd4";
+	// static constexpr const char* OPAQUE = "11733b200778ce33060f31c9af70a870ba96ddd4";
 
 	ServerCore server_core;
-  	std::forward_list<struct Session*> sessionsList;
 };
+
 
 template <typename... Args>
 	Server::Server(
 		  MHD_FLAG exec_flags
 		, uint16_t port
-		, ServerCore::MHD_AcceptPolicyCallback* acceptCallback
+		, MHD_AcceptPolicyCallback accessCallback
 		, void* param1
-		, ServerCore::MHD_AccessHandlerCallback* accessCallback
-		, void* param2
 		, Args... args)
 {
 
-	server_core.easy_start(exec_flags, port, acceptCallback, 
-		param1, accessCallback, param2, args...);
-
-	if (partpants_list.open(PATH_TO_DB))
-		throw std::runtime_error("Server::Server(): open database error!");
+	server_core.easy_start(exec_flags, port, accessCallback, param1,
+		&ReplyToConnection, reinterpret_cast<void*>(this), args...);
 
 	working = true;
+}
+
+
+template<typename ...Args, 
+	typename std::enable_if<std::is_same<Args, std::add_pointer_t<Server::Resource>>::value>::type...>
+int Server::RegisterResource(Resource* res, Args... ress)
+{
+	int return_code = RegisterResource(res);
+	return_code |= RegisterResource(ress...);
+	return return_code;
 }
 
 #endif // SERVER_HPP_

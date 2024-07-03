@@ -6,21 +6,26 @@
 struct Participant
 {
 // private:
-  std::string name_;
-  std::string key_word_;
-  std::string info_;
+  std::string name;
+  std::string password;
+  std::string info;
 public:
   Participant() = default;
 
-  Participant(std::string name, std::string key_word, std::string info);
+  Participant(std::string _name, std::string _key_word, std::string _info);
 
   struct Comparer
   {
     bool operator()(const Participant& lhs, const Participant& rhs)
     {
-      return lhs.name_.compare(rhs.name_) < 0 ? true : false;
+      return lhs.name.compare(rhs.name) < 0 ? true : false;
     }
   };
+
+  bool is_incompleted() const
+  {
+    return name.empty() && password.empty();
+  }
 
   Participant(const Participant& that);
 

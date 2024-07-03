@@ -42,7 +42,7 @@ int16_t serverDB::AddParticipant(const Participant& member_info)
   std::lock_guard<std::mutex> locker(db_mutex);
   
   char* exec_cm = nullptr;
-  asprintf(&exec_cm, "SELECT * FROM users WHERE pseudo = \"%s\"", member_info.name_.c_str());
+  asprintf(&exec_cm, "SELECT * FROM users WHERE pseudo = \"%s\"", member_info.name.c_str());
   if (!exec_cm)
     return DB_UNSPEC_ERROR;
 
@@ -65,7 +65,7 @@ int16_t serverDB::AddParticipant(const Participant& member_info)
     return DB_NAME_BUSY; // name already taken
 
   asprintf(&exec_cm, "INSERT INTO users VALUES(%u, \"%s\", \"%s\");",
-    users_num++, member_info.name_.c_str(), member_info.key_word_.c_str());
+    users_num++, member_info.name.c_str(), member_info.password.c_str());
 
   if (!exec_cm)
     return DB_UNSPEC_ERROR;
@@ -91,7 +91,7 @@ int16_t serverDB::AccessParticipant(const Participant& member_info) const
 
   char* exec_cm = nullptr; 
   asprintf(&exec_cm, "SELECT * FROM users WHERE pseudo = '%s' AND key = '%s'", 
-    member_info.name_.c_str(), member_info.key_word_.c_str());
+    member_info.name.c_str(), member_info.password.c_str());
   if (!exec_cm)
     return DB_UNSPEC_ERROR;
 

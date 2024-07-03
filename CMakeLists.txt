@@ -3,22 +3,26 @@ cmake_minimum_required(VERSION 3.21)
 project(server)
 
 set (SOURCES
-	src/Server.cpp
+	# src/Server.cpp
 	src/ServerCore.cpp
 	src/ServerDB.cpp
 	src/Participant.cpp
 	src/DB.cpp
-	sha256/sha256.c
+	# sha256/sha256.c
 	src/htmlUtils.cpp
+	src/SessionList.cpp
 	# src/serverSIGNUP
 )
 
+
+
 set (MAIN_CPP_FILE
-	src/main.cpp)
+	src/main.cpp
+	src/Server.cpp)
 
 set(CMAKE_CXX_STANDARD 17 REQUIRED)
 
-set_source_files_properties(${MAIN_CPP_FILE} PROPERTIES COMPILE_OPTIONS -g)
+# set_source_files_properties(${MAIN_CPP_FILE} PROPERTIES COMPILE_OPTIONS -g)
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
