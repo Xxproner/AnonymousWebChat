@@ -32,11 +32,12 @@ namespace HTML
 		 * the function returns path to src 
 		 * if no more src empty string
 		 * */
-		std::wstring parse() noexcept;
+		std::string parse() noexcept;
 
 		~Parser() noexcept;
 
 	private:
+		bool wcstombs_on_skip(char& ch, wchar_t& w_ch) const noexcept;
 		std::wifstream file;
 		int state;
 		// std::locale loc = std::locale("en_US.UTF-8");
