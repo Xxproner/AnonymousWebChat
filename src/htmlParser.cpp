@@ -31,13 +31,27 @@ void HTML::Parser::clear() noexcept
 	// std::locale::global(std::locale::classic());
 }
 
+bool HTML::Parser::wcstombs_on_skip(char& ch, wchar_t& w_ch) const noexcept
+{
+	bool flag = true;
+	if (wcstombs(&ch, &w_ch, 1) == -1) // fail
+	{
+		state = SKIP;
+		flag = false;
+	}
+	
+	return flag;
+}
+
+
 // read it by another way word by word
 // now method is char by char
-std::wstring HTML::Parser::parse() noexcept
+std::string HTML::Parser::parse() noexcept
 {
-	std::wstring src;
+	std::string src;
 	size_t src_len = 0;
-
+	char simple_ch = 0;
+	
 	auto end_of_file = file.eof();
 
 	wchar_t ch; // if % it may be unicode character
@@ -55,8 +69,12 @@ std::wstring HTML::Parser::parse() noexcept
 					state = S;
 				} else if (state == PROCESS_SRC_ATTR)
 				{
-					src.push_back(ch);
-					++src_len;
+					if (wcstombs_on_skip(simple_ch, ch))
+					{
+						src.push_back(simple_ch);
+						++src_len;
+					}
+					
 				}else 
 				{
 					state = SKIP;
@@ -71,8 +89,11 @@ std::wstring HTML::Parser::parse() noexcept
 					state = R;
 				} else if(state == PROCESS_SRC_ATTR)
 				{
-					src.push_back(ch);
-					++src_len;
+					if (wcstombs_on_skip(simple_ch, ch))
+					{
+						src.push_back(simple_ch);
+						++src_len;
+					}
 				} else 
 				{
 					state = SKIP;
@@ -87,8 +108,11 @@ std::wstring HTML::Parser::parse() noexcept
 					state = C;
 				} else if(state == PROCESS_SRC_ATTR)
 				{
-					src.push_back(ch);
-					++src_len;
+					if (wcstombs_on_skip(simple_ch, ch))
+					{
+						src.push_back(simple_ch);
+						++src_len;
+					}
 				} else 
 				{
 					state = SKIP;
@@ -102,8 +126,11 @@ std::wstring HTML::Parser::parse() noexcept
 					// nothing
 				} else if (state == PROCESS_SRC_ATTR)
 				{
-					src.push_back(ch);
-					++src_len;
+					if (wcstombs_on_skip(simple_ch, ch))
+					{
+						src.push_back(simple_ch);
+						++src_len;
+					}
 				} else 
 				{
 					state = SKIP;
@@ -117,8 +144,11 @@ std::wstring HTML::Parser::parse() noexcept
 					state = SRC_ATTR;
 				} else if (state == PROCESS_SRC_ATTR)
 				{
-					src.push_back(ch);
-					++src_len;
+					if (wcstombs_on_skip(simple_ch, ch))
+					{
+						src.push_back(simple_ch);
+						++src_len;
+					}
 				} else 
 				{
 					state = SKIP;
@@ -140,8 +170,11 @@ std::wstring HTML::Parser::parse() noexcept
 						return src;
 					} else 
 					{
-						src.push_back(ch);
-						++src_len;
+						if (wcstombs_on_skip(simple_ch, ch))
+						{
+							src.push_back(simple_ch);
+							++src_len;
+						}
 					}
 					
 					break;
@@ -162,9 +195,11 @@ std::wstring HTML::Parser::parse() noexcept
 			{
 				if (state == PROCESS_SRC_ATTR)
 				{
-					// allowed sybmol for file
-					src.push_back(ch);
-					++src_len;
+					if (wcstombs_on_skip(simple_ch, ch))
+					{
+						src.push_back(simple_ch);
+						++src_len;
+					}
 				} else 
 				{
 					state = SKIP;
@@ -174,7 +209,7 @@ std::wstring HTML::Parser::parse() noexcept
 		}
 	}
 
-	return L"";
+	return "";
 };
 
 HTML::Parser::~Parser() noexcept
