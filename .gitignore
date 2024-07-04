@@ -8,3 +8,5 @@ users.db
 
 ip2location_db/*
 
+src/tests/*
+

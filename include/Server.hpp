@@ -96,10 +96,21 @@ namespace HTTP
 // =========================================================
 
 
-
 class Server
 {
 public:
+	typedef MHD_Result(BasicAuthInterface)(const std::string&, const std::string&, const std::string&);
+	class BasicAuth_t;
+
+	typedef MHD_Result(DigestAuthInterface)(
+		const std::string& username, const std::string& passw, const std::string& realm, 
+		const std::string& opaque, enum MHD_DigestAuthAlgorithm alg, unsigned int nonce_timeout);
+	class DigestAuth_t;
+
+	/* imcompleted type! */
+	typedef MHD_Result(JWTAuthInterface)()
+	class JWT_t;
+
 	static constexpr std::array<const char*, 9> methods{
 		"GET", "HEAD", "POST", "PUT",  "DELETE", 
 		"CONNECT", "TRACE", "OPTIONS", "PATCH"};
@@ -226,6 +237,22 @@ private:
 		size_t upload_data_size);
 
 	MHD_Result SendNotFoundResponse(MHD_Connection* connection) const;
+public:
+
+	template <typename AuthT, typename... Args>
+	void Server::AddAuth(Args... args) 
+
+private:
+	static constexpr const char* DENIED =
+		"<html><head><title>libmicrohttpd demo</title></head><body>Access denied</body></html>"
+
+	std::function<MHD_Result(MHD_Connection*)> Auth;
+
+	static BasicAuthInterface BasicAuth;
+
+	static DigestAuthInterface DigestAuth;
+
+	static JWTAuthInterface JWTAuth;
 
 private:	
 	bool working = false;
@@ -262,5 +289,25 @@ int Server::RegisterResource(Resource* res, Args... ress)
 	return_code |= RegisterResource(ress...);
 	return return_code;
 }
+
+
+template <typename AuthT, typename... Args>
+void Server::AddAuth(Args... args) 
+{
+	if constexpr(std::is_same_v<AuthT, BasicAuth>)
+	{
+		Auth = std::bind(BasicAuth, std::placeholders::_1, args...);
+	} else if (std::is_same_v<AuthT, DigestAuth>)
+	{
+		Auth = std::bind(DigestAuth, std::placeholders::_1, args...);
+	} else if (std::is_same_v<AuthT, JWT>)
+	{
+		Auth = std::bind(JWTAuth, std::placeholders::_1, args...);
+	} else 
+	{
+		static_assert(false, "Not available auth type!");
+	}
+}
+
 
 #endif // SERVER_HPP_
