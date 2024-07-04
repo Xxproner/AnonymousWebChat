@@ -315,7 +315,50 @@ int Server::RegisterResource(Resource* res)
 int Server::RegisterHTMLPage(const char* url, const char* file)
 {
 	// internal src is added external skip
-	// what difference between /image.jpg and image.jpg
+	// difference between /image.png and image.png
+	// is /image.png is absolute file path but image.png is relative
+	// we should classificate resources
+
+	/* static*/ HTML::Parser src_parser;
+	if (src_parser.init(url) == -1)
+	{
+		return -1;
+	}
+
+	// std::wstring path_src_attr;
+	std::string path_src_attr;
+	
+	// const wchar_t* base_dir_path = basename(url);		
+	// std::wstring file_name(base_dir_path); 
+	const char* base_dir_path = basename(url);
+	std::string file_name(base_dir_path); file_name.push_back('/');
+	std::string::iterator basedir_end_iter = file_name.cend();
+	while (!(path_src_attr = src_parser.parse()).emtpy())
+	{
+		// clasificate
+		Resource* res = nullptr;
+		if (path_src_attr[0] == '/')
+		{
+			res = new Resource(src_file.c_str() + 1, HTTP::GET);
+		// } else if (strcmphead(src_file.c_str(), L"http") && src_file.c_str(), L"file"))
+		} else if (strcmphead(src_file.c_str(), "http") && srccmphead(str_file.c_str(), "file"))
+		{
+			// file_name.append(L"/").append(src_file.c_str());
+			file_name.replace(basedir_end_iter, file_name.cend(), src_file.c_str())
+			res = new Resource(file_name.c_str(), HTTP::GET);
+		} else 
+		{
+			// skip
+		}
+
+		if (res)
+		{
+			RegisterResourse(res);
+		}
+	}
+	
+	src_parser.clear();
+	
 }
 
 // private or not
