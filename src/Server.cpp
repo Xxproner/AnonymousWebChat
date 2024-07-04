@@ -139,6 +139,104 @@ MHD_Result Server::SendNotFoundResponse(MHD_Connection* connection) const
 	return ret;
 }
 
+/*
+authentificate needs to every connection?
+*/
+// create class Auth
+// digest and basic and jwt
+MHD_Result BasicAuth(MHD_Connection* conn, const char* name, 
+	const char* passw, const char* realm)
+{
+	char* conn_name = nullptr;
+	char* conn_passw = nullptr;
+	conn_name = MHD_basic_auth_get_username_password(conn, &conn_passw);
+	if (!conn_name)
+	{
+		MHD_Response* basic_auth_fail_res = 
+			MHD_create_response_from_buffer(0, (void*)"", MHD_RESPMEM_PERSISTENT);
+		MHD_queue_basic_auth_fail_response(conn, realm, basic_auth_fail_res);
+		return MHD_NO;
+	}
+
+	if (strcmp(passw, conn_passw) != 0)
+	{
+		MHD_Response* basic_auth_fail_res = 
+			MHD_create_response_from_buffer(0, (void*)"", MHD_RESPMEM_PERSISTENT);
+		MHD_queue_basic_auth_fail_response(conn, realm, basic_auth_fail_res);
+		return MHD_NO;
+	}
+
+	return MHD_YES;
+}
+
+// add digest conf and add db for users
+#define OPAQUE "11733b200778ce33060f31c9af70a870ba96ddd4"
+MHD_Result DigestAuth(MHD_Connection* conn, const char* name,
+	const char* passw, const char* realm, const char* opaque,
+	enum MHD_DigestAuthAlgorithm alg, unsigned int nonce_time)
+{
+	struct MHD_Response *response;
+	char *username;
+	const char *password = "testpass";
+	const char *realm = "test@example.com";
+	int ret;
+	
+	username = MHD_digest_auth_get_username (connection);
+	if (username == NULL)
+	{
+	response = MHD_create_response_from_buffer(strlen (DENIED),
+						 DENIED,
+						 MHD_RESPMEM_PERSISTENT);
+	ret = MHD_queue_auth_fail_response2 (connection,
+					   realm,
+					   OPAQUE,
+					   response,
+					   MHD_NO,
+					   MHD_DIGEST_ALG_SHA256);
+	MHD_destroy_response(response);
+	return ret;
+	}
+	ret = MHD_digest_auth_check2 (connection,
+				realm,
+				username,
+				password,
+				300,
+				MHD_DIGEST_ALG_SHA256);
+	free(username);
+	if ( (ret == MHD_INVALID_NONCE) ||
+	(ret == MHD_NO) )
+	{
+	response = MHD_create_response_from_buffer(strlen (DENIED),
+						 DENIED,
+						 MHD_RESPMEM_PERSISTENT);
+	if (NULL == response)
+	return MHD_NO;
+	ret = MHD_queue_auth_fail_response2 (connection,
+					   realm,
+					   OPAQUE,
+					   response,
+					   (ret == MHD_INVALID_NONCE) ? MHD_YES : MHD_NO,
+					   MHD_DIGEST_ALG_SHA256);
+	MHD_destroy_response(response);
+	return ret;
+	}
+	response = MHD_create_response_from_buffer (strlen(PAGE),
+					      PAGE,
+					      MHD_RESPMEM_PERSISTENT);
+	ret = MHD_queue_response (connection,
+			    MHD_HTTP_OK,
+			    response);
+	MHD_destroy_response(response);
+	return ret;
+}
+
+void Server::AddBasicAuth(const char* name, const char* passw)
+{
+}
+/*
+*/
+
+
 /**
  * static function 
  * */
