@@ -5,6 +5,7 @@
 
 #include <memory>
 #include <set>
+#include <string>
 
 #include "ServerCore.hpp"
 #include "ServerDB.hpp"
@@ -99,16 +100,21 @@ namespace HTTP
 class Server
 {
 public:
-	typedef MHD_Result(BasicAuthInterface)(const std::string&, const std::string&, const std::string&);
+	typedef MHD_Result(BasicAuthInterface)(
+		MHD_Connection*, const std::string& username, 
+		const std::string& passw, const std::string& realm);
 	class BasicAuth_t;
 
 	typedef MHD_Result(DigestAuthInterface)(
-		const std::string& username, const std::string& passw, const std::string& realm, 
-		const std::string& opaque, enum MHD_DigestAuthAlgorithm alg, unsigned int nonce_timeout);
+		MHD_Connection*, const std::string& username, 
+		const std::string& passw, const std::string& realm, 
+		const std::string& opaque, enum MHD_DigestAuthAlgorithm alg, 
+		unsigned int nonce_timeout);
 	class DigestAuth_t;
 
 	/* imcompleted type! */
-	typedef MHD_Result(JWTAuthInterface)()
+	typedef MHD_Result(JWTAuthInterface)(
+		MHD_Connection* conn);
 	class JWT_t;
 
 	static constexpr std::array<const char*, 9> methods{
@@ -139,15 +145,18 @@ public:
 	static constexpr const char* SUCCESS_PAGE = CONCAT(HTML_SRC_PATH, "/chat.html");
 
 	static constexpr const char* NOT_FOUND = "<html><body>Not found!</body></html>";
+	static constexpr const char* INTERNAL_ERROR = "<html><body>Internal error!</body></html>";
 	static constexpr const char *ERROR_PAGE = "";
 
 	static constexpr const char* EMPTY_RESPONSE = "";
-	static constexpr const char* DENIED = "<html><body>Fail authorization!</body></html>";
 
 	static constexpr const char* MY_SERVER = "kinkyServer";
 	~Server() noexcept;
 
 	constexpr bool is_working() const { return working; };
+
+	static MHD_Result SendFile(struct MHD_Connection* conn,
+		std::string_view page, uint16_t http_status_code = MHD_HTTP_OK);
 
 	class Resource
 	{
@@ -155,7 +164,7 @@ public:
 		Resource(int _method, const char* url);
 
 		virtual MHD_Result operator()(void* cls, struct MHD_Connection* conn,
-			const char* version, const char* upload_data,
+			const char* upload_data,
 			size_t* upload_data_size)  = 0;
 
 		virtual bool operator<(const Resource& that) const noexcept final
@@ -185,6 +194,26 @@ public:
 	int RegisterHTMLPage(const char* url, const char* file);
 
 private:
+	static ssize_t xxFileReaderCallback(void* cls, uint64_t pos, 
+		char* buf, size_t max);
+
+	static void xxContentReaderFreeCallback(void* cls);
+
+	class GeneralServerGetResource : public Resource
+	{
+	public:
+		GeneralServerGetResource(const char* url)
+		 	: Resource(HTTP::GET, url)
+		{}
+		
+		MHD_Result operator()(void* cls, struct MHD_Connection* conn,
+			const char* upload_data,
+			size_t* upload_data_size) override;
+
+		// ~GeneralServerGetResource() noexcept;
+
+	};
+
 	// typedef std::pair<int, std::unique_ptr<Resource>> ResourceonMethod;
 
 	Resource* FindResource(int method, const std::string& url) ;
@@ -235,16 +264,18 @@ private:
 		const char* url, const char* method, 
 		const char* version, const char* upload_data, 
 		size_t upload_data_size);
+	
+	static MHD_Result SendInternalErrResponse(MHD_Connection* connection) ;
 
-	MHD_Result SendNotFoundResponse(MHD_Connection* connection) const;
+	static MHD_Result SendNotFoundResponse(MHD_Connection* connection) ;
 public:
 
 	template <typename AuthT, typename... Args>
-	void Server::AddAuth(Args... args) 
+	void AddAuth(Args&&... args);
 
 private:
 	static constexpr const char* DENIED =
-		"<html><head><title>libmicrohttpd demo</title></head><body>Access denied</body></html>"
+		"<html><head><title>libmicrohttpd demo</title></head><body>Access denied</body></html>";
 
 	std::function<MHD_Result(MHD_Connection*)> Auth;
 
@@ -256,10 +287,6 @@ private:
 
 private:	
 	bool working = false;
-
-	// static const std::string HashBasicAuthCode;
-
-	// static constexpr const char* OPAQUE = "11733b200778ce33060f31c9af70a870ba96ddd4";
 
 	ServerCore server_core;
 };
@@ -292,20 +319,20 @@ int Server::RegisterResource(Resource* res, Args... ress)
 
 
 template <typename AuthT, typename... Args>
-void Server::AddAuth(Args... args) 
+void Server::AddAuth(Args&&... args) 
 {
-	if constexpr(std::is_same_v<AuthT, BasicAuth>)
+	if constexpr(std::is_same_v<AuthT, BasicAuth_t>)
 	{
-		Auth = std::bind(BasicAuth, std::placeholders::_1, args...);
-	} else if (std::is_same_v<AuthT, DigestAuth>)
+		Auth = std::bind(BasicAuth, std::placeholders::_1, std::forward<Args>(args)...);
+	} else if (std::is_same_v<AuthT, DigestAuth_t>)
 	{
-		Auth = std::bind(DigestAuth, std::placeholders::_1, args...);
-	} else if (std::is_same_v<AuthT, JWT>)
+		Auth = std::bind(DigestAuth, std::placeholders::_1, std::forward<Args>(args)...);
+	} else if (std::is_same_v<AuthT, JWT_t>)
 	{
-		Auth = std::bind(JWTAuth, std::placeholders::_1, args...);
+		Auth = std::bind(JWTAuth, std::placeholders::_1, std::forward<Args>(args)...);
 	} else 
 	{
-		static_assert(false, "Not available auth type!");
+		// static_assert(false, "Not available auth type!");
 	}
 }
 

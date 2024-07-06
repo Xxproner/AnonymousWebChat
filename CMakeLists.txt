@@ -10,6 +10,7 @@ set (SOURCES
 	src/DB.cpp
 	# sha256/sha256.c
 	src/htmlUtils.cpp
+	src/htmlParser.cpp
 	src/SessionList.cpp
 	# src/serverSIGNUP
 )

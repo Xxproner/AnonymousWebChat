@@ -122,7 +122,7 @@ public:
 	{};
 
 	virtual MHD_Result operator()(void* cls, struct MHD_Connection* conn,
-				const char* version, const char* upload_data,
+				const char* upload_data,
 				size_t* upload_data_size) override
 	{
 		return SendPage(conn, MHD_HTTP_OK, url);
@@ -160,7 +160,7 @@ public:
 	};
 
 	MHD_Result operator()(void* cls, struct MHD_Connection* conn,
-			const char* version, const char* upload_data,
+			const char* upload_data,
 			size_t* upload_data_size) override
 	{
 		return MHD_queue_response(conn, MHD_HTTP_OK, general_response);
@@ -321,7 +321,7 @@ public:
 	{};
 
 	virtual MHD_Result operator()(void* cls, struct MHD_Connection* connection,
-				const char* version, const char* upload_data,
+				const char* upload_data,
 				size_t* upload_data_size) override
 	{
 		const char* cookie = MHD_lookup_connection_value(connection, 
@@ -363,8 +363,8 @@ private:
 int main()
 {
 	// needed for registration html page
-	std::locate loc("en_US.UTF-8");
-	std::locate::global(loc);
+	std::locale loc("en_US.UTF-8");
+	std::locale::global(loc);
 
 	srand(time(NULL));
 	const uint16_t WEBSERVERPORT = 8888;
@@ -375,16 +375,16 @@ int main()
 							 // MHD_OPTION_NOTIFY_COMPLETED, &RequestCompleted,
 							 MHD_OPTION_END);
 
-	Resource* main_html_page = new GeneralGetResource(HTTP::GET, "/", "../html_src/sign_in.html");
+	// Resource* main_html_page = new GeneralGetResource(HTTP::GET, "/", "../html_src/sign_in.html");
 	// assert(registration_server.RegisterResource(main_html_page) == 0 && "Registration error!");
 
 	Resource* favicon_ico = new GeneralGetResource(HTTP::GET, "/static/favicon.ico", "../html_src/static/favicon.ico");
-	// assert(registration_server.RegisterResource(favicon_ico) == 0 && "Registration error!");
+	assert(registration_server.RegisterResource(favicon_ico) == 0 && "Registration error!");
 	
 	// alternative and more comfortable way to register html
-	assert(registration_server.RegisterResource(main_html_page, favicon_ico) == 0 && "Failed");
 
-	assert(registration_server.RegisterHTMLPage("/sign_in.html", "../html_src/sign_in.html") == 0 && "Registration html page error");
+	assert(registration_server.RegisterHTMLPage("/", "../html_src/sign_in.html") == 0 && "Registration html page error");
+
 
 	// Resource* access_member_post_data_resource = new PostResource(HTTP::POST, "/sign_in.html");
 
@@ -588,7 +588,7 @@ enum MHD_Result SendPage(
 	return ret;
 };
 
-	
+
 // 	return MHD_YES;
 // }
 

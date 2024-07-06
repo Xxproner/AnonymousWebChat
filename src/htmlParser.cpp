@@ -36,7 +36,6 @@ bool HTML::Parser::wcstombs_on_skip(char& ch, wchar_t& w_ch) const noexcept
 	bool flag = true;
 	if (wcstombs(&ch, &w_ch, 1) == -1) // fail
 	{
-		state = SKIP;
 		flag = false;
 	}
 	
@@ -73,8 +72,10 @@ std::string HTML::Parser::parse() noexcept
 					{
 						src.push_back(simple_ch);
 						++src_len;
+					}else
+					{
+						state = SKIP;
 					}
-					
 				}else 
 				{
 					state = SKIP;
@@ -93,6 +94,9 @@ std::string HTML::Parser::parse() noexcept
 					{
 						src.push_back(simple_ch);
 						++src_len;
+					}else
+					{
+						state = SKIP;
 					}
 				} else 
 				{
@@ -112,6 +116,9 @@ std::string HTML::Parser::parse() noexcept
 					{
 						src.push_back(simple_ch);
 						++src_len;
+					}else
+					{
+						state = SKIP;
 					}
 				} else 
 				{
@@ -130,6 +137,9 @@ std::string HTML::Parser::parse() noexcept
 					{
 						src.push_back(simple_ch);
 						++src_len;
+					}else
+					{
+						state = SKIP;
 					}
 				} else 
 				{
@@ -148,6 +158,9 @@ std::string HTML::Parser::parse() noexcept
 					{
 						src.push_back(simple_ch);
 						++src_len;
+					}else
+					{
+						state = SKIP;
 					}
 				} else 
 				{
@@ -174,6 +187,9 @@ std::string HTML::Parser::parse() noexcept
 						{
 							src.push_back(simple_ch);
 							++src_len;
+						}else
+						{
+							state = SKIP;
 						}
 					}
 					
@@ -199,6 +215,9 @@ std::string HTML::Parser::parse() noexcept
 					{
 						src.push_back(simple_ch);
 						++src_len;
+					}else
+					{
+						state = SKIP;
 					}
 				} else 
 				{

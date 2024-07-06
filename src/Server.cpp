@@ -1,31 +1,115 @@
 #include "Server.hpp"
 
-#include <time.h>
-
-#include "sha256.h"
+// #include <time.h>
 
 #include <iostream>
+#include <fstream>
 #include <algorithm>
 #include <chrono>
 #include <cassert>
 
+#include "htmlParser.hpp"
+
 #warning "ServerDB is public member!"
 
+// ssize_t *MHD_ContentReaderCallback (void *cls, uint64_t pos, char *buf, size_t max)
+ssize_t Server::xxFileReaderCallback(void* cls, uint64_t pos, char* buf, size_t max)
+{
+	std::ifstream* file = reinterpret_cast<std::ifstream*>(cls);
+	char ch = 0; ssize_t curr = 0;
+	while((ch = file->get()) && 
+		curr < max) 
+	{	
+		buf[curr] = ch;
+		++curr;
+	}
+
+	if (file->eof())
+	{
+		curr = -1;
+	}
+
+	return curr;
+}
+
+// void *MHD_ContentReaderFreeCallback (void *cls)
+void Server::xxContentReaderFreeCallback (void *cls)
+{
+	reinterpret_cast<std::ifstream*>(cls)->close();
+}
+
+// struct MHD_Response * MHD_create_response_from_callback (uint64_t size, size_t block_size, MHD_ContentReaderCallback crc, void *crc_cls, MHD_ContentReaderFreeCallback crfc)
+MHD_Result Server::SendFile(
+	struct MHD_Connection *connection, 
+	std::string_view page,
+	uint16_t http_status_code)
+{
+	enum MHD_Result ret;
+	struct MHD_Response *response;
+
+	std::string page_name = HTML_SRC_PATH;
+	if (page.compare("/") == 0)
+	{
+		page_name.append("/sign_in.html");
+	} else
+	{
+		page_name.append(page);
+	}
+
+	std::ifstream file(page_name, std::ios_base::in | std::ios_base::binary);
+	if (!file.is_open())
+	{
+		return SendNotFoundResponse(connection);
+	}
 
 
-/* may improve */
+	response = MHD_create_response_from_callback(-1, 1024 * 2, &Server::xxFileReaderCallback,
+		reinterpret_cast<void*>(&file), &Server::xxContentReaderFreeCallback);
+
+	// if( (file_desc = open(page_name.c_str(), O_RDONLY)) != -1 &&
+	// 	fstat(file_desc, &file_buf) == 0)
+	// {
+	// 	response = MHD_create_response_from_fd(file_buf.st_size, file_desc);
+
+	// 	if (response == NULL)
+	// 	{
+	// 		std::cerr << "SendPage(): Failed to create response!";
+	// 		close(file_desc);
+	// 		return MHD_NO;
+	// 	}
+
+	// } else 
+	// { 
+	// 	if (errno == ENOENT) // no such file or directory
+	// 	{
+	// 		// std::cerr << page_name << ": no such file or directory!\n";
+	// 		return SendNotFoundResponse(connection);
+	// 	} else 
+	// 	{
+	// 		return SendInternalErrResponse(connection);
+	// 	}
+	// }
+
+	ret = MHD_queue_response (connection, http_status_code, response);
+
+	MHD_destroy_response (response);
+	
+	return ret;
+};
+
+
 int Server::CombMethod(std::string_view finding_method) const
 {
 	return std::distance(methods.cbegin(),
 		std::find_if(methods.cbegin(), methods.cend(), 
 			[finding_method](std::string_view method)
 			{ 
-				return finding_method.compare(method) == 0; 
+				return strcasecmp(method.data(), finding_method.data()) == 0; 
 			}
 		));
 }
 
-MHD_Result Server::SendNotFoundResponse(MHD_Connection* connection) const
+MHD_Result Server::SendInternalErrResponse(MHD_Connection* connection)
 {
 	MHD_Response* not_found_response = 
 		MHD_create_response_from_buffer(strlen(NOT_FOUND), 
@@ -35,7 +119,25 @@ MHD_Result Server::SendNotFoundResponse(MHD_Connection* connection) const
 		return MHD_NO;
 	}
 
-	MHD_Result ret = MHD_queue_response(connection, HTTP::NotFound, not_found_response);
+	MHD_Result ret = MHD_queue_response(connection, MHD_HTTP_NOT_FOUND, not_found_response);
+
+	MHD_destroy_response(not_found_response);
+
+	return ret;
+}
+
+
+MHD_Result Server::SendNotFoundResponse(MHD_Connection* connection)
+{
+	MHD_Response* not_found_response = 
+		MHD_create_response_from_buffer(strlen(INTERNAL_ERROR), 
+			(void*)INTERNAL_ERROR, MHD_RESPMEM_PERSISTENT);
+	if (!not_found_response)
+	{
+		return MHD_NO;
+	}
+
+	MHD_Result ret = MHD_queue_response(connection, MHD_HTTP_INTERNAL_SERVER_ERROR, not_found_response);
 
 	MHD_destroy_response(not_found_response);
 
@@ -52,7 +154,7 @@ MHD_Result Server::BasicAuth(MHD_Connection* conn, const std::string& username,
 	char* conn_passw = nullptr;
 	char* conn_name =  MHD_basic_auth_get_username_password(conn, &conn_passw);
 	
-	fail = ( (NULL == conn_name) || (NULL == conn_passw) ||
+	bool fail = ( (NULL == conn_name) || (NULL == conn_passw) ||
 				username.compare(conn_name) || passw.compare(conn_passw));
 
 	if (conn_name)
@@ -69,7 +171,7 @@ MHD_Result Server::BasicAuth(MHD_Connection* conn, const std::string& username,
 	{
 		MHD_Response* basic_auth_fail_res = 
 			MHD_create_response_from_buffer(strlen(Server::DENIED), (void*)Server::DENIED, MHD_RESPMEM_PERSISTENT);
-		MHD_queue_basic_auth_fail_response(conn, realm, basic_auth_fail_res);
+		MHD_queue_basic_auth_fail_response(conn, realm.c_str(), basic_auth_fail_res);
 
 		MHD_destroy_response(basic_auth_fail_res);
 		return MHD_NO;
@@ -79,7 +181,7 @@ MHD_Result Server::BasicAuth(MHD_Connection* conn, const std::string& username,
 }
 
 
-MHD_Result Server::DGVerificate(struct MHD_Connection* connection,
+/*MHD_Result Server::DigestAuth(struct MHD_Connection* connection,
 	const std::string& username, const std::string& passw, 
 	const std::string& realm, const std::string& opaque, 
 	enum MHD_DigestAuthAlgorithm alg, unsigned int nonce_timeout)
@@ -92,7 +194,7 @@ MHD_Result Server::DGVerificate(struct MHD_Connection* connection,
 				c_passw = passw.c_str(),
 				c_opaque = opaque.c_str();
 
-	char *username = MHD_digest_auth_get_username (connection);
+	char* conn_username = MHD_digest_auth_get_username (connection);
 	if (username == NULL)
 	{
 		response = MHD_create_response_from_buffer(strlen (DENIED),
@@ -110,7 +212,7 @@ MHD_Result Server::DGVerificate(struct MHD_Connection* connection,
 
 	ret = (MHD_Result) MHD_digest_auth_check2(connection,
 										c_realm,
-										c_username,
+										conn_username,
 										c_passw,
 										nonce_timeout,
 										alg);
@@ -134,9 +236,9 @@ MHD_Result Server::DGVerificate(struct MHD_Connection* connection,
 	}
 
 	return MHD_YES;
-}
+}*/
 
-MHD_Result(Server::JWTAuthInterface)()
+MHD_Result Server::JWTAuth(struct MHD_Connection* conn)
 {
 	assert(false && "Imcompleted!");
 }
@@ -213,7 +315,7 @@ MHD_Result Server::ReplyToConnection(
 	}
 
 	return found_resource->operator()(con_info, connection,
-		version, upload_data, 
+		upload_data, 
 		upload_data_size);
 
 	// available methods
@@ -292,6 +394,15 @@ Server::Resource::~Resource()
 	}
 }
 
+
+MHD_Result Server::GeneralServerGetResource::operator()(void* cls, struct MHD_Connection* conn,
+	const char* upload_data,
+	size_t* upload_data_size)
+{
+	return SendFile(conn,url);
+}
+
+
 int Server::RegisterResource(Resource* res)
 {
 	const auto hint = resources.lower_bound(*res);
@@ -327,6 +438,9 @@ int Server::RegisterHTMLPage(const char* url, const char* file)
 		return -1;
 	}
 
+	const char* http_string = "http";
+	const char* file_string = "file";
+
 	// std::wstring path_src_attr;
 	std::string path_src_attr;
 	
@@ -334,20 +448,21 @@ int Server::RegisterHTMLPage(const char* url, const char* file)
 	// std::wstring file_name(base_dir_path); 
 	const char* base_dir_path = basename(url);
 	std::string file_name(base_dir_path); file_name.push_back('/');
-	std::string::iterator basedir_end_iter = file_name.cend();
-	while (!(path_src_attr = src_parser.parse()).emtpy())
+	std::string::const_iterator basedir_end_iter = file_name.cend();
+	while (!(path_src_attr = src_parser.parse()).empty())
 	{
 		// clasificate
 		Resource* res = nullptr;
 		if (path_src_attr[0] == '/')
 		{
-			res = new Resource(src_file.c_str() + 1, HTTP::GET);
+			res = new GeneralServerGetResource(path_src_attr.c_str() + 1);
 		// } else if (strcmphead(src_file.c_str(), L"http") && src_file.c_str(), L"file"))
-		} else if (strcmphead(src_file.c_str(), "http") && srccmphead(str_file.c_str(), "file"))
+		} else if (!std::equal(path_src_attr.cbegin(), path_src_attr.cend(), http_string, http_string + strlen(http_string)) 
+			&& std::equal(path_src_attr.cbegin(), path_src_attr.cend(), http_string, file_string + strlen(file_string)))
 		{
 			// file_name.append(L"/").append(src_file.c_str());
-			file_name.replace(basedir_end_iter, file_name.cend(), src_file.c_str())
-			res = new Resource(file_name.c_str(), HTTP::GET);
+			file_name.replace(basedir_end_iter, file_name.cend(), path_src_attr.c_str());
+			res = new GeneralServerGetResource(file_name.c_str());
 		} else 
 		{
 			// skip
@@ -355,12 +470,12 @@ int Server::RegisterHTMLPage(const char* url, const char* file)
 
 		if (res)
 		{
-			RegisterResourse(res);
+			RegisterResource(res);
 		}
 	}
 	
 	src_parser.clear();
-	
+	return MHD_YES;
 }
 
 // private or not
