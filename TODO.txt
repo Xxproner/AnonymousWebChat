@@ -1,0 +1,1 @@
+1) finish Server::RegisterHTMLPage(js src found and added to resources but css not -> boost HTML::Parser)
