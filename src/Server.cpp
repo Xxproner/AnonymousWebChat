@@ -7,8 +7,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cassert>
+#include <regex>
 
-#include "htmlParser.hpp"
+// #include "htmlParser.hpp"
 
 #warning "ServerDB is public member!"
 
@@ -16,6 +17,12 @@
 ssize_t Server::xxFileReaderCallback(void* cls, uint64_t pos, char* buf, size_t max)
 {
 	std::ifstream* file = reinterpret_cast<std::ifstream*>(cls);
+	
+	if (file->eof())
+	{
+		return MHD_CONTENT_READER_END_OF_STREAM;;
+	}
+
 	char ch = 0; ssize_t curr = 0;
 	while((ch = file->get()) && 
 		curr < max) 
@@ -24,18 +31,17 @@ ssize_t Server::xxFileReaderCallback(void* cls, uint64_t pos, char* buf, size_t 
 		++curr;
 	}
 
-	if (file->eof())
-	{
-		curr = -1;
-	}
-
 	return curr;
 }
 
 // void *MHD_ContentReaderFreeCallback (void *cls)
 void Server::xxContentReaderFreeCallback (void *cls)
 {
-	reinterpret_cast<std::ifstream*>(cls)->close();
+	std::ifstream* file = 
+		reinterpret_cast<std::ifstream*>(cls);
+
+	file->close();
+	delete file;
 }
 
 // struct MHD_Response * MHD_create_response_from_callback (uint64_t size, size_t block_size, MHD_ContentReaderCallback crc, void *crc_cls, MHD_ContentReaderFreeCallback crfc)
@@ -56,16 +62,23 @@ MHD_Result Server::SendFile(
 		page_name.append(page);
 	}
 
-	std::ifstream file(page_name, std::ios_base::in | std::ios_base::binary);
-	if (!file.is_open())
+	std::ifstream* file = new std::ifstream(page_name, std::ios_base::in | std::ios_base::binary);
+	if (!file->is_open())
 	{
-		return SendNotFoundResponse(connection);
+#ifdef DEBUG
+		fprintf(stderr, "Bound file[%s] with resource open error!\n", page_name.c_str());
+#endif // DEBUG
+		return SendInternalErrResponse(connection);
 	}
 
-
 	response = MHD_create_response_from_callback(-1, 1024 * 2, &Server::xxFileReaderCallback,
-		reinterpret_cast<void*>(&file), &Server::xxContentReaderFreeCallback);
+		reinterpret_cast<void*>(file), &Server::xxContentReaderFreeCallback);
 
+	if (!response)
+	{
+		// std::cerr << "Invalid created response!\n";
+		return MHD_NO;
+	}
 	// if( (file_desc = open(page_name.c_str(), O_RDONLY)) != -1 &&
 	// 	fstat(file_desc, &file_buf) == 0)
 	// {
@@ -100,13 +113,14 @@ MHD_Result Server::SendFile(
 
 int Server::CombMethod(std::string_view finding_method) const
 {
-	return std::distance(methods.cbegin(),
-		std::find_if(methods.cbegin(), methods.cend(), 
-			[finding_method](std::string_view method)
-			{ 
-				return strcasecmp(method.data(), finding_method.data()) == 0; 
-			}
-		));
+	const static std::map<std::string_view, int> methods = {
+		{"GET", 0}, {"HEAD", 1}, {"POST", 2}, {"PUT", 3},  {"DELETE", 4}, 
+		{"CONNECT", 5}, {"TRACE", 6}, {"OPTIONS", 7}, {"PATCH", 8}
+	};
+
+	const auto methd_n_code = methods.find(finding_method);
+
+	return methd_n_code != methods.cend() ? methd_n_code->second : -1;
 }
 
 MHD_Result Server::SendInternalErrResponse(MHD_Connection* connection)
@@ -119,7 +133,7 @@ MHD_Result Server::SendInternalErrResponse(MHD_Connection* connection)
 		return MHD_NO;
 	}
 
-	MHD_Result ret = MHD_queue_response(connection, MHD_HTTP_NOT_FOUND, not_found_response);
+	MHD_Result ret = MHD_queue_response(connection, MHD_HTTP_INTERNAL_SERVER_ERROR, not_found_response);
 
 	MHD_destroy_response(not_found_response);
 
@@ -137,7 +151,7 @@ MHD_Result Server::SendNotFoundResponse(MHD_Connection* connection)
 		return MHD_NO;
 	}
 
-	MHD_Result ret = MHD_queue_response(connection, MHD_HTTP_INTERNAL_SERVER_ERROR, not_found_response);
+	MHD_Result ret = MHD_queue_response(connection, MHD_HTTP_NOT_FOUND, not_found_response);
 
 	MHD_destroy_response(not_found_response);
 
@@ -255,68 +269,29 @@ MHD_Result Server::ReplyToConnection(
 	Server* backvalue_server = 
 		reinterpret_cast<Server*>(cls);
 
-	enum MHD_Result ret;
-	// Session* session = nullptr;
-	MHD_Connection* con_info = reinterpret_cast<MHD_Connection*>(*con_cls);
-	
-	if (!con_info)
-	{
-		// try
-		// {
-		// 	if (strcmp (method, MHD_HTTP_METHOD_POST) == 0) // if POST method
-		// 	{
-		// 		// MHD library parser of post data
-		// 		// only above two content-type
-		// 		const char* content_type = MHD_lookup_connection_value(
-		// 			connection, MHD_HEADER_KIND, "Content-Type");
-		// 		if (content_type == NULL)
-		// 		{
-		// 			session->STATUS_CODE = MHD_HTTP_BAD_REQUEST;
-		// 			return SendPage(connection, session, Server::ERROR_PAGE, MHD_RESPMEM_PERSISTENT);
-		// 		}
-				
-		// 		if (strcasecmp(content_type, MHD_HTTP_POST_ENCODING_FORM_URLENCODED) == 0 ||
-		// 			strcasecmp(content_type, MHD_HTTP_POST_ENCODING_MULTIPART_FORMDATA) == 0)
-		// 		{
-		// 			// MHD post process
-		// 			con_info = new Server::ConnectionInfo(url, connection, 
-		// 				Server::POSTBUFFERSIZE, &IteratePostData);
-		// 		} else 
-		// 		{
-		// 			con_info = new Server::ConnectionInfo(url, connection, 
-		// 				Server::POSTBUFFERSIZE, &PostDataParser);
-		// 		}
-		// 	} else 
-		// 	{
-		// 		con_info = new Server::ConnectionInfo(url);
-		// 	}
-
-		// 	*con_cls = (void *) con_info;
-		// } catch(...) // dont interested what exception we get
-		// {
-		// 	return MHD_NO;
-		// }
-		*con_cls = reinterpret_cast<void*>(connection);
-		return MHD_YES;
-	}
-
-	// session = con_info->session;
-	// session->start_ = std::chrono::system_clock::now();
-
 	int method_number = backvalue_server->CombMethod(method);
+	// dont need to check method
 
 	Resource* found_resource = backvalue_server->FindResource(
 		method_number, url);
 
 	if (found_resource == nullptr)
 	{
+#ifdef DEBUG
 		std::cerr << method << " " << url << ": resource not found!\n";
+#endif /* DEBUG */
 		return backvalue_server->SendNotFoundResponse(connection);
 	}
 
+	// if (resource->configured)
+	// {
+		
+	// }
+
+
 	return found_resource->operator()(con_info, connection,
 		upload_data, 
-		upload_data_size);
+		upload_data_size, con_cls);
 
 	// available methods
 	// if (strcmp(method, MHD_HTTP_METHOD_POST) != 0 && 
@@ -382,6 +357,7 @@ char* strdupxx(std::string_view str)
 Server::Resource::Resource(int _method, const char* _url)
 	: method(_method)
 	, url(strdupxx(_url))
+	, configured(false)
 {
 }
 
@@ -395,13 +371,18 @@ Server::Resource::~Resource()
 }
 
 
-MHD_Result Server::GeneralServerGetResource::operator()(void* cls, struct MHD_Connection* conn,
+int Server::GeneralServerGetResource::RegistrationTimeCheck() const noexcept
+{
+	return 0;
+};
+
+MHD_Result Server::GeneralServerGetResource::operator()(void* cls, 
+	struct MHD_Connection* conn,
 	const char* upload_data,
 	size_t* upload_data_size)
 {
-	return SendFile(conn,url);
+	return SendFile(conn, filename.c_str());
 }
-
 
 int Server::RegisterResource(Resource* res)
 {
@@ -425,48 +406,73 @@ int Server::RegisterResource(Resource* res)
 	return 0;
 }
 
-int Server::RegisterHTMLPage(const char* url, const char* file)
+/*int Server::RegisterHTMLPage(const char* url, const char* file)
 {
 	// internal src is added external skip
 	// difference between /image.png and image.png
 	// is /image.png is absolute file path but image.png is relative
 	// we should classificate resources
 
-	/* static*/ HTML::Parser src_parser;
-	if (src_parser.init(url) == -1)
+	HTML::Parser src_parser;
+
+	Resource* res = nullptr;
+
+	std::string_view name_base_file = basename(url);
+
+	res = new GeneralServerGetResource(url, name_base_file);
+
+	if (static_cast<GeneralServerGetResource*>(res)->RegistrationTimeCheck() != 0)
 	{
+#ifdef DEBUG
+		std::cerr << "Resource error!\n";
+#endif	
+		return -1;	
+	}
+
+
+	if (RegisterResource(res) != 0)
+	{
+#ifdef DEBUG
+		std::cout << "Base resource registration failed!\n";
+#endif
 		return -1;
 	}
 
-	const char* http_string = "http";
-	const char* file_string = "file";
+	if (src_parser.init(url) == -1)
+	{
+#ifdef DEBUG
+		std::cout << "Unspecific internal error!\n";
+#endif
+		return -1;
+	}
+
+	auto JustFilename = [](const std::string& possbl_filename)
+	{
+		static std::regex filename_reg("\\w+(\\.\\w+)?");
+		return std::regex_match(possbl_filename, filename_reg);
+	};
 
 	// std::wstring path_src_attr;
 	std::string path_src_attr;
 	
 	// const wchar_t* base_dir_path = basename(url);		
 	// std::wstring file_name(base_dir_path); 
-	const char* base_dir_path = basename(url);
-	std::string file_name(base_dir_path); file_name.push_back('/');
+	std::string_view dir_path = Helper::dirname(url); 
+
+	std::string file_name(dir_path);
 	std::string::const_iterator basedir_end_iter = file_name.cend();
+
 	while (!(path_src_attr = src_parser.parse()).empty())
 	{
-		// clasificate
-		Resource* res = nullptr;
 		if (path_src_attr[0] == '/')
 		{
-			res = new GeneralServerGetResource(path_src_attr.c_str() + 1);
-		// } else if (strcmphead(src_file.c_str(), L"http") && src_file.c_str(), L"file"))
-		} else if (!std::equal(path_src_attr.cbegin(), path_src_attr.cend(), http_string, http_string + strlen(http_string)) 
-			&& std::equal(path_src_attr.cbegin(), path_src_attr.cend(), http_string, file_string + strlen(file_string)))
+			// resource url ----> url/path_src_attr
+			res = new GeneralServerGetResource(&path_src_attr[0], &path_src_attr[1]);
+		} else if (JustFilename(path_src_attr))
 		{
-			// file_name.append(L"/").append(src_file.c_str());
 			file_name.replace(basedir_end_iter, file_name.cend(), path_src_attr.c_str());
-			res = new GeneralServerGetResource(file_name.c_str());
-		} else 
-		{
-			// skip
-		}
+			res = new GeneralServerGetResource(file_name, path_src_attr);
+		} 
 
 		if (res)
 		{
@@ -475,8 +481,8 @@ int Server::RegisterHTMLPage(const char* url, const char* file)
 	}
 	
 	src_parser.clear();
-	return MHD_YES;
-}
+	return 0;
+}*/
 
 // private or not
 Server::Resource* Server::FindResource(int method, const std::string& url)
@@ -601,3 +607,16 @@ static std::string operator ""_s(const char* str, long unsigned int length)
 // =========================================================
 
 // #include "serverSIGNUP.cpp"
+
+
+std::string_view Helper::dirname(std::string_view file_path)
+{
+    // . and .. url cannot relates to . and ..
+    if (file_path[0] == '.')
+    {
+        return "/";
+    }
+
+    size_t pos_last_slash = file_path.rfind("/");
+    return std::string_view(file_path.data(), pos_last_slash + 1);
+};

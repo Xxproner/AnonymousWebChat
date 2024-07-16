@@ -18,6 +18,8 @@ struct Session
 	bool verificate;
 	char sid[33];
 
+	void UpdateActivity();
+
 	std::chrono::time_point<std::chrono::steady_clock> start;
 
 	~Session() = default;

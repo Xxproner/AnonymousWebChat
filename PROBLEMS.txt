@@ -1,0 +1,5 @@
+1)Wanted to create a function
+that would allow registration html page 
+with all it's dependensies like style, src attr and other.
+It is realy exciting but I met with a several problems. I dont 
+know HTML.

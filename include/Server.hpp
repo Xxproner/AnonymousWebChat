@@ -96,6 +96,14 @@ namespace HTTP
 // ================== ending ResourceHash ==================
 // =========================================================
 
+class Helper
+{
+public:
+	static std::string_view dirname(std::string_view file_path);
+};
+
+
+
 
 class Server
 {
@@ -116,10 +124,6 @@ public:
 	typedef MHD_Result(JWTAuthInterface)(
 		MHD_Connection* conn);
 	class JWT_t;
-
-	static constexpr std::array<const char*, 9> methods{
-		"GET", "HEAD", "POST", "PUT",  "DELETE", 
-		"CONNECT", "TRACE", "OPTIONS", "PATCH"};
 
 	template <typename... Args>
 	Server(
@@ -149,8 +153,7 @@ public:
 	static constexpr const char *ERROR_PAGE = "";
 
 	static constexpr const char* EMPTY_RESPONSE = "";
-
-	static constexpr const char* MY_SERVER = "kinkyServer";
+	
 	~Server() noexcept;
 
 	constexpr bool is_working() const { return working; };
@@ -167,31 +170,39 @@ public:
 			const char* upload_data,
 			size_t* upload_data_size)  = 0;
 
-		virtual bool operator<(const Resource& that) const noexcept final
-		{
-			return strcmp(url, that.url) < 0;
-		}
+		virtual bool operator<(const Resource& that) const noexcept final;
 
-		virtual bool operator==(const Resource& that) const noexcept final
-		{
-			return !(*this < that) && !(that < *this);
-		}
-
-		// bool operator<(const std::string);
+		virtual bool operator==(const Resource& that) const noexcept final;
 
 		virtual ~Resource() noexcept;
+
+		typedef MHD_Result(ConfigurationCallback)(MHD_Connection*, const char*, const char*, void**);
+		typedef void(ReleaseCallback)(void**);
+		
+	 	void setConfigurationPolicy(ConfigurationCallback* conf_callb, ReleaseCallback* release_callb);
+
+	 	friend Server;
 	public:
 		const int method;
 		const char*  url;
+	protected:
+		std::function<ConfigurationCallback> Configure;
+		std::function<ReleaseCallback> Release;
+	private:
+		bool configured;
 	};
 
+	/**
+	 *  return 0 in success 
+	 *  -1 in other cases
+	*/
 	int RegisterResource(Resource* resource);
 
 	template<typename ...Args, 
 		typename std::enable_if<std::is_same<Args, std::add_pointer_t<Server::Resource>>::value>::type...>
-	int RegisterResource(Resource* resource, Args...);
+	int RegisterResources(Resource* resource, Args...);
 
-	int RegisterHTMLPage(const char* url, const char* file);
+	// int RegisterHTMLPage(const char* url, const char* file);
 
 private:
 	static ssize_t xxFileReaderCallback(void* cls, uint64_t pos, 
@@ -199,58 +210,53 @@ private:
 
 	static void xxContentReaderFreeCallback(void* cls);
 
-	class GeneralServerGetResource : public Resource
+	/*class GeneralServerGetResource : public Resource
 	{
 	public:
-		GeneralServerGetResource(const char* url)
+		GeneralServerGetResource(const std::string& url, const std::string& _filename)
+			: GeneralServerGetResource(url.c_str(), _filename.c_str())
+		{};
+
+		GeneralServerGetResource(std::string_view url, std::string_view _filename)
+			: GeneralServerGetResource(url.data(), _filename.data())
+		{};
+
+		GeneralServerGetResource(const char* url, const char* _filename)
 		 	: Resource(HTTP::GET, url)
-		{}
+		 	, filename(_filename)
+		{};
 		
+		int RegistrationTimeCheck() const noexcept;
+
 		MHD_Result operator()(void* cls, struct MHD_Connection* conn,
 			const char* upload_data,
 			size_t* upload_data_size) override;
 
 		// ~GeneralServerGetResource() noexcept;
-
+	private:
+		const std::string filename;
 	};
+	*/
 
-	// typedef std::pair<int, std::unique_ptr<Resource>> ResourceonMethod;
-
-	Resource* FindResource(int method, const std::string& url) ;
+	Resource* FindResource(int method, const std::string& url);
 	
-	// TODO: registation directory
 	class ResourceComp
 	{
 	public:
 		bool operator()(const std::unique_ptr<Resource>& lhs, 
-			const std::unique_ptr<Resource>& rhs) const noexcept
-		{
-			return *lhs.get() < *rhs.get();
-		};
+			const std::unique_ptr<Resource>& rhs) const noexcept;
 
 		bool operator()(const std::unique_ptr<Resource>& lhs,
-			const std::string& url) const noexcept
-		{
-			return strcmp(lhs.get()->url, url.c_str()) < 0;
-		}
+			const std::string& url) const noexcept;
 
 		bool operator()(const std::string& url,
-			const std::unique_ptr<Resource>& lhs) const noexcept
-		{
-			return strcmp(url.c_str(), lhs.get()->url) < 0;
-		}
+			const std::unique_ptr<Resource>& lhs) const noexcept;
 
 		bool operator()(const Resource& res,
-			const std::unique_ptr<Resource>& rhs) const noexcept
-		{
-			return strcmp(res.url, rhs.get()->url) < 0;
-		}
+			const std::unique_ptr<Resource>& rhs) const noexcept;
 
 		bool operator()(const std::unique_ptr<Resource>& lhs,
-			const Resource& res) const noexcept
-		{
-			return strcmp(lhs.get()->url, res.url) < 0;
-		}
+			const Resource& res) const noexcept;
 
 		using is_transparent = void;
 	};
@@ -273,6 +279,9 @@ public:
 	template <typename AuthT, typename... Args>
 	void AddAuth(Args&&... args);
 
+	typedef MHD_Result (ConfigurationCallback)(MHD_Connection*,
+		const char*, const char*, void**);
+
 private:
 	static constexpr const char* DENIED =
 		"<html><head><title>libmicrohttpd demo</title></head><body>Access denied</body></html>";
@@ -286,55 +295,13 @@ private:
 	static JWTAuthInterface JWTAuth;
 
 private:	
+
 	bool working = false;
 
 	ServerCore server_core;
 };
 
 
-template <typename... Args>
-	Server::Server(
-		  MHD_FLAG exec_flags
-		, uint16_t port
-		, MHD_AcceptPolicyCallback accessCallback
-		, void* param1
-		, Args... args)
-{
-
-	server_core.easy_start(exec_flags, port, accessCallback, param1,
-		&ReplyToConnection, reinterpret_cast<void*>(this), args...);
-
-	working = true;
-}
-
-
-template<typename ...Args, 
-	typename std::enable_if<std::is_same<Args, std::add_pointer_t<Server::Resource>>::value>::type...>
-int Server::RegisterResource(Resource* res, Args... ress)
-{
-	int return_code = RegisterResource(res);
-	return_code |= RegisterResource(ress...);
-	return return_code;
-}
-
-
-template <typename AuthT, typename... Args>
-void Server::AddAuth(Args&&... args) 
-{
-	if constexpr(std::is_same_v<AuthT, BasicAuth_t>)
-	{
-		Auth = std::bind(BasicAuth, std::placeholders::_1, std::forward<Args>(args)...);
-	} else if (std::is_same_v<AuthT, DigestAuth_t>)
-	{
-		Auth = std::bind(DigestAuth, std::placeholders::_1, std::forward<Args>(args)...);
-	} else if (std::is_same_v<AuthT, JWT_t>)
-	{
-		Auth = std::bind(JWTAuth, std::placeholders::_1, std::forward<Args>(args)...);
-	} else 
-	{
-		// static_assert(false, "Not available auth type!");
-	}
-}
-
+#include "Server.inl"
 
 #endif // SERVER_HPP_

@@ -53,3 +53,10 @@ void SessionsList::ExpireSession() noexcept
 		}
 	}
 }
+
+// =========================================================
+void SessionsList::UpdateActivity() noexcept
+// =========================================================
+{
+	start = std::chrono::steady_clock::now();
+}

@@ -10,7 +10,7 @@ set (SOURCES
 	src/DB.cpp
 	# sha256/sha256.c
 	src/htmlUtils.cpp
-	src/htmlParser.cpp
+	# src/htmlParser.cpp
 	src/SessionList.cpp
 	# src/serverSIGNUP
 )
@@ -36,6 +36,8 @@ find_package(Threads REQUIRED)
 add_compile_definitions(ABS_PATH="${CMAKE_SOURCE_DIR}")
 add_compile_definitions(DB_PATH="${CMAKE_SOURCE_DIR}") #with ending `/'
 add_compile_definitions(HTML_SRC_PATH="${CMAKE_SOURCE_DIR}/html_src")
+
+add_compile_definitions(DEBUG)
 
 add_executable(main ${SOURCES} ${MAIN_CPP_FILE})
 
