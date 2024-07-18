@@ -225,23 +225,18 @@ private:
 	}
 };
 
-/*#include <set>
-
-std::set<std::string_view> UsedContentType {
-	"text/plain", "application/json"
-};*/
-
-
-// available content-type is responsibility of post iterator
+// general post resource
 class PostResource : public Server::Resource
 {
 public:
-	typedef MHD_Result (PostDataHandler)(MHD_Connection*, Session*);
+	// typedef MHD_Result (PostDataHandler)(MHD_Connection*, Session*);
+	typedef MHD_Result (PostDataHandler  )(MHD_Connection*);
+	typedef MHD_Result (PostDataIterator)(MHD_Connection*, const char*, size_t);
 
-	PostResource(int _method, const char* _url, 
-				MHD_PostDataIterator _process_post_data,
-				PostDataHandler _handle_post_data)
-		: Resource(_method, _url)
+	PostResource(const char* _url, 
+				PostDataIterator _process_post_data,
+				PostDataHandler  _handle_post_data)
+		: Resource(HTTP::POST, _url)
 		, process_post_data(_process_post_data)
 		, handle_post_data(_handle_post_data)
 		, session(nullptr)
@@ -251,52 +246,31 @@ public:
 				const char* upload_data,
 				size_t* upload_data_size, void** con_cls) override
 	{	
-		// set available content-type to server resource system
-		// set configuration to first connection
-
-		/*if (!post_processor)
-		{
-			MHD_PostProcessor* temp = MHD_create_post_processor(conn, kPostBufferSize, &PostIterator, nullptr);
-			if (!temp)
-			{
-				// internal error
-				return MHD_HTTP_INTERNAL_SERVER_ERROR;
-			}
-
-			post_processor.reset(temp);
-		}*/
-
-		/*std::string_view content_type = MHD_lookup_connection_value(conn, MHD_HEADER_KIND,
-			"Content-Type");
-		if (content_type.compare("text/plain") != 0 && content_type.compare("multipart/form-data") == 0)
-		{
-			// bad request
-			return MHD_HTTP_BAD_REQUEST;
-		}*/
-
 		if (*upload_data_size > 0)
 		{
-			// process upload data
 			process_post_data(connection, 
 				upload_data, *upload_data_size);
 
 			return MHD_YES;
 		}
 
-		return handle_post_data(connection, session);
+		// return handle_post_data(connection, session);
+		return handle_post_data(connection);
 	};
 
-private: // methods
-	static uint16_t PostProcessbyMHD(MHD_Connection* conn, const char* upload_data,
-		size_t upload_data_size)
-	{
-		return 0;
-	}	
+private: // members
+	std::function<PostDataIterator> process_post_data;
+	std::function<PostDataHandler > handle_post_data;
+};
 
+// for sign in and sign up
+class RegistrationPostResource : public PostResource
+{
+public:
 	static MHD_Result PostIterator(void *cls, enum MHD_ValueKind kind, 
-						const char *key, const char *filename, 
-						const char *content_type, const char *transfer_encoding, 
-						const char *data, uint64_t off, size_t size)
+					const char *key, const char *filename, 
+					const char *content_type, const char *transfer_encoding, 
+					const char *data, uint64_t off, size_t size)
 	{
 		if (size > 0)
 		{ // for now it is only @sign in@ option
@@ -329,6 +303,46 @@ private: // methods
 			return MHD_YES;
 		}
 	}
+
+	// configuration for first post request
+	// create MHD_post_processor to process post data
+	static MHD_Result CreatePostProcessor(MHD_Connection* conn, void** con_cls)
+	{
+		assert(*con_cls == NULL && "CreatePostProcessor(): connection cls is not NULL");
+
+		const char* content_type = MHD_lookup_connection_value(conn, MHD_HEADER_KIND,
+			"Content-Type");
+
+		// what associative of || operator --> or <--
+		if (!content_type ||
+			(strcmp(content_type, "text/plain") != 0 && strcmp(content_type, "multipart/form-data") == 0))
+		{
+			// bad request
+			return MHD_NO;
+		}
+
+		MHD_PostProcessor* pp = MHD_create_post_processor(conn, kPostBufferSize, &PostResource::IteratePostData, nullptr);
+		if (!pp)
+		{
+			// internal error
+			return MHD_NO;
+		}
+
+		*con_cls = reinterpret_cast<void*>(pp);
+		pp = nullptr;
+
+		return MHD_YES;
+
+	};
+
+	static void DestroyPostProcessor(void** con_cls)
+	{
+		if (*con_cls)
+		{
+			MHD_destroy_post_processor(reinterpret_cast<MHD_PostProcessor*>(*con_cls));
+		}
+	}
+
 	class PostProcessorDestroyer
 	{
 		auto operator()(MHD_PostProcessor* pp) 
@@ -337,15 +351,14 @@ private: // methods
 			return MHD_destroy_post_processor(pp);
 		};
 	};
-private: // members
-	std::function<MHD_Result(MHD_Connection*, const char*, size_t)> process_post_data;
-	std::function<PostDataHandler> handle_post_data;
-	Session* session;
-	static SessionsList session_list;
 
-	std::unique_ptr<MHD_PostProcessor, PostProcessorDestroyer> post_processor;
+
+
+private: // members
 	static const size_t kPostBufferSize = 512;
-};
+	// Session* session;
+	// static SessionsList session_list;
+}
 
 int main()
 {
@@ -370,9 +383,10 @@ int main()
 	
 	// alternative and more comfortable way to register html
 
-	// Resource* access_member_post_data_resource = new PostResource(HTTP::POST, "/sign_in.html");
-
-	// registration_server.RegisterResource(access_member_post_data_resource);
+	Resource* access_member_post_data_resource = new PostResource(HTTP::POST, "/sign_in.html");
+	access_member_post_data_resource->setConfigurationPolicy(&PostResource::CreatePostProcessor,
+			&PostResource::DestroyPostProcessor);
+	assert(registration_server.RegisterResource(access_member_post_data_resource) == 0);
 
 	auto WorkingProcess = [&registration_server]()
 	{
