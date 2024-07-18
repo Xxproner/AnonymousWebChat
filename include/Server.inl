@@ -6,9 +6,10 @@ template <typename... Args>
 		, void* param1
 		, Args... args)
 {
-
 	server_core.easy_start(exec_flags, port, accessCallback, param1,
-		&ReplyToConnection, reinterpret_cast<void*>(this), args...);
+		&ReplyToConnection, reinterpret_cast<void*>(this), 
+		MHD_OPTION_NOTIFY_COMPLETED, &CompletedConnectionCallback, reinterpret_cast<void*>(this), 
+		args...);
 
 	working = true;
 }
@@ -43,12 +44,12 @@ void Server::AddAuth(Args&&... args)
 }
 
 //============================== Resource ========================================
-inline bool Server::Resource::operator<(const Resource& that) const noexcept final
+inline bool Server::Resource::operator<(const Resource& that) const noexcept
 {
 	return strcmp(url, that.url) < 0;
 }
 
-inline bool Server::Resource::operator==(const Resource& that) const noexcept final
+inline bool Server::Resource::operator==(const Resource& that) const noexcept
 {
 	return !(*this < that) && !(that < *this);
 }

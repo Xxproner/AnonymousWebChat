@@ -32,7 +32,6 @@ unsigned constexpr chash(char const *input) {
 #endif
 
 
-
 // template <typename TLiteral>
 // struct Timer
 // {
@@ -120,7 +119,7 @@ public:
 
 	virtual MHD_Result operator()(void* cls, struct MHD_Connection* conn,
 				const char* upload_data,
-				size_t* upload_data_size) override
+				size_t* upload_data_size, void** con_cls) override
 	{
 		return SendPage(conn, MHD_HTTP_OK, url);
 	};
@@ -148,7 +147,7 @@ public:
 				assert(false);
 			}
 			
-		} else 
+		}	 else 
 		{
 			std::cerr << __FUNCTION__;
 			perror(" error: Internal failed");
@@ -158,7 +157,7 @@ public:
 
 	MHD_Result operator()(void* cls, struct MHD_Connection* conn,
 			const char* upload_data,
-			size_t* upload_data_size) override
+			size_t* upload_data_size, void** con_cls) override
 	{
 		return MHD_queue_response(conn, MHD_HTTP_OK, general_response);
 	};
@@ -237,13 +236,12 @@ std::set<std::string_view> UsedContentType {
 class PostResource : public Server::Resource
 {
 public:
-	typedef MHD_Result (PostDataHandler)(MHD_Connection*);
+	typedef MHD_Result (PostDataHandler)(MHD_Connection*, Session*);
 
 	PostResource(int _method, const char* _url, 
 				MHD_PostDataIterator _process_post_data,
 				PostDataHandler _handle_post_data)
 		: Resource(_method, _url)
-		, post_processor(_post_processor)
 		, process_post_data(_process_post_data)
 		, handle_post_data(_handle_post_data)
 		, session(nullptr)
@@ -251,7 +249,7 @@ public:
 
 	virtual MHD_Result operator()(void* cls, struct MHD_Connection* connection,
 				const char* upload_data,
-				size_t* upload_data_size) override
+				size_t* upload_data_size, void** con_cls) override
 	{	
 		// set available content-type to server resource system
 		// set configuration to first connection
@@ -292,6 +290,7 @@ private: // methods
 	static uint16_t PostProcessbyMHD(MHD_Connection* conn, const char* upload_data,
 		size_t upload_data_size)
 	{
+		return 0;
 	}	
 
 	static MHD_Result PostIterator(void *cls, enum MHD_ValueKind kind, 
@@ -301,7 +300,7 @@ private: // methods
 	{
 		if (size > 0)
 		{ // for now it is only @sign in@ option
-			if (!FilterCharacters(data, size))
+			if (!PostDataUtils::FilterCharacters(data, size))
 			{
 				return MHD_NO;
 			}
@@ -309,17 +308,17 @@ private: // methods
 			{
 				CASE("name"):
 				{
-					member.name = data;
+					// member.name = data;
 					break;
 				}
 				CASE("passw"):
 				{
-					member.password = data;
+					// member.password = data;
 					break;
 				}
 				CASE("info"):
 				{
-					member.info = data;
+					// member.info = data;
 					break;
 				}
 				DEFAULT:
@@ -330,14 +329,21 @@ private: // methods
 			return MHD_YES;
 		}
 	}
-
+	class PostProcessorDestroyer
+	{
+		auto operator()(MHD_PostProcessor* pp) 
+			-> decltype(MHD_destroy_post_processor(pp)) const noexcept
+		{
+			return MHD_destroy_post_processor(pp);
+		};
+	};
 private: // members
 	std::function<MHD_Result(MHD_Connection*, const char*, size_t)> process_post_data;
 	std::function<PostDataHandler> handle_post_data;
 	Session* session;
 	static SessionsList session_list;
 
-	std::unique_ptr<MHD_PostProcessor, MHD_destroy_post_processor> post_processor;
+	std::unique_ptr<MHD_PostProcessor, PostProcessorDestroyer> post_processor;
 	static const size_t kPostBufferSize = 512;
 };
 

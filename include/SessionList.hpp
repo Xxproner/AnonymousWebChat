@@ -18,7 +18,7 @@ struct Session
 	bool verificate;
 	char sid[33];
 
-	void UpdateActivity();
+	void UpdateActivity() noexcept;
 
 	std::chrono::time_point<std::chrono::steady_clock> start;
 

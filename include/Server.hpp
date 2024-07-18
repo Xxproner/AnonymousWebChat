@@ -168,7 +168,7 @@ public:
 
 		virtual MHD_Result operator()(void* cls, struct MHD_Connection* conn,
 			const char* upload_data,
-			size_t* upload_data_size)  = 0;
+			size_t* upload_data_size, void** con_cls)  = 0;
 
 		virtual bool operator<(const Resource& that) const noexcept final;
 
@@ -176,7 +176,7 @@ public:
 
 		virtual ~Resource() noexcept;
 
-		typedef MHD_Result(ConfigurationCallback)(MHD_Connection*, const char*, const char*, void**);
+		typedef MHD_Result(ConfigurationCallback)(MHD_Connection*, void**);
 		typedef void(ReleaseCallback)(void**);
 		
 	 	void setConfigurationPolicy(ConfigurationCallback* conf_callb, ReleaseCallback* release_callb);
@@ -210,6 +210,8 @@ private:
 
 	static void xxContentReaderFreeCallback(void* cls);
 
+	static typename std::remove_pointer_t<MHD_RequestCompletedCallback> CompletedConnectionCallback;
+	
 	/*class GeneralServerGetResource : public Resource
 	{
 	public:

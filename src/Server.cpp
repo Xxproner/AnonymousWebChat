@@ -260,6 +260,44 @@ MHD_Result Server::JWTAuth(struct MHD_Connection* conn)
 /**
  * static function 
  * */
+void Server::CompletedConnectionCallback(void* server_this, MHD_Connection* conn, 
+		void** con_cls, MHD_RequestTerminationCode toe)
+{
+// MHD_REQUEST_TERMINATED_COMPLETED_OK:
+// 	We finished sending the response.
+
+// MHD_REQUEST_TERMINATED_WITH_ERROR:
+// 	Error handling the connection (resources exhausted, other side closed connection, application error accepting request, etc.)
+
+// MHD_REQUEST_TERMINATED_TIMEOUT_REACHED:
+// 	No activity on the connection for the number of seconds specified using MHD_OPTION_CONNECTION_TIMEOUT.
+
+// MHD_REQUEST_TERMINATED_DAEMON_SHUTDOWN:
+// 	We had to close the session since MHD was being shut down.
+	std::ignore = toe;
+
+	if (*con_cls == NULL)
+	{
+		return;
+	}
+
+	std::pair<Resource*, void**>* ptr_resource_n_cls = reinterpret_cast<
+		std::pair<Resource*, void**>*>(con_cls);
+
+	Resource* resource = ptr_resource_n_cls->first;
+
+	void** cls = ptr_resource_n_cls->second;
+
+	if (resource && resource->configured)
+	{
+		resource->Release(cls); // noexcept
+	}
+
+	delete cls;
+	delete ptr_resource_n_cls;
+};
+
+
 MHD_Result Server::ReplyToConnection(
 					void *cls, struct MHD_Connection *connection,
 					const char *url, const char *method,
@@ -283,15 +321,23 @@ MHD_Result Server::ReplyToConnection(
 		return backvalue_server->SendNotFoundResponse(connection);
 	}
 
-	// if (resource->configured)
-	// {
-		
-	// }
+	if (resource->configured)
+	{
+		if (*con_cls != NULL)
+		{
+			std::cerr << "I don't have idea what happens\n";
+			return MHD_NO;
+		}
+
+		*con_cls = new std::pair<Resource*, void**>>(resource, new void*);
+
+		return resource->Configure(connection, (*con_cls)->second);
+	}
 
 
 	return found_resource->operator()(con_info, connection,
 		upload_data, 
-		upload_data_size, con_cls);
+		upload_data_size, (*con_cls)->second);
 
 	// available methods
 	// if (strcmp(method, MHD_HTTP_METHOD_POST) != 0 && 

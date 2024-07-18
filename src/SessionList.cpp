@@ -15,6 +15,14 @@ Session::Session()
 }
 
 // =========================================================
+void Session::UpdateActivity() noexcept
+// =========================================================
+{
+	start = std::chrono::steady_clock::now();
+}
+
+
+// =========================================================
 Session* SessionsList::FindSession(const char* finding_sid)
 // =========================================================
 {
@@ -52,11 +60,4 @@ void SessionsList::ExpireSession() noexcept
 			++prev;
 		}
 	}
-}
-
-// =========================================================
-void SessionsList::UpdateActivity() noexcept
-// =========================================================
-{
-	start = std::chrono::steady_clock::now();
 }
