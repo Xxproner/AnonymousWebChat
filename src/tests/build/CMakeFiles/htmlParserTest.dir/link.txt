@@ -1,1 +1,0 @@
-/usr/bin/c++ CMakeFiles/htmlParserTest.dir/htmlParser_test.cpp.o CMakeFiles/htmlParserTest.dir/home/pasha/http_1_1_server/src/htmlParser.cpp.o -o htmlParserTest 

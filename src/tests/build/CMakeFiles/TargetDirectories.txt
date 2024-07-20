@@ -1,3 +1,0 @@
-/home/pasha/http_1_1_server/src/tests/build/CMakeFiles/htmlParserTest.dir
-/home/pasha/http_1_1_server/src/tests/build/CMakeFiles/edit_cache.dir
-/home/pasha/http_1_1_server/src/tests/build/CMakeFiles/rebuild_cache.dir
