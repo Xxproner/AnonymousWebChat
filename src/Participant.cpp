@@ -49,6 +49,15 @@ Participant& Participant::operator=(Participant&& that) noexcept
 	}
 
 // =========================================================
+void Participant::clear() noexcept
+// =========================================================
+{
+	name.clear();
+	password.clear();
+	info.clear();
+}
+
+// =========================================================
 std::ostream& operator<<(std::ostream& out, const Participant& participant)
 // =========================================================
 {
@@ -57,4 +66,3 @@ std::ostream& operator<<(std::ostream& out, const Participant& participant)
 	return out;
 
 }
-

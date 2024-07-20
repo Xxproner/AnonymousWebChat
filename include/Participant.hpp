@@ -22,10 +22,7 @@ public:
     }
   };
 
-  bool is_incompleted() const
-  {
-    return name.empty() && password.empty();
-  }
+  void clear() noexcept;
 
   Participant(const Participant& that);
 
@@ -34,7 +31,6 @@ public:
   Participant(Participant&& that) noexcept;
 
   Participant& operator=(Participant&& that) noexcept;
-
   
   friend std::ostream& operator<<(std::ostream&, const Participant&);
 

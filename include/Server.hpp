@@ -103,8 +103,6 @@ public:
 };
 
 
-
-
 class Server
 {
 public:
@@ -150,7 +148,9 @@ public:
 
 	static constexpr const char* NOT_FOUND = "<html><body>Not found!</body></html>";
 	static constexpr const char* INTERNAL_ERROR = "<html><body>Internal error!</body></html>";
-	static constexpr const char *ERROR_PAGE = "";
+	static constexpr const char *BAD_REQUEST = "<html><body>Think next time before request</body></html>";
+
+		static constexpr const char *ERROR_PAGE = "";
 
 	static constexpr const char* EMPTY_RESPONSE = "";
 	
@@ -177,17 +177,17 @@ public:
 		virtual ~Resource() noexcept;
 
 		typedef MHD_Result(ConfigurationCallback)(MHD_Connection*, void**);
+		
 		typedef void(ReleaseCallback)(void**);
 		
-	 	void setConfigurationPolicy(ConfigurationCallback* conf_callb, ReleaseCallback* release_callb);
+		virtual ConfigurationCallback Configure;
+
+		virtual ReleaseCallback Release;
 
 	 	friend Server;
 	public:
 		const int method;
 		const char*  url;
-	protected:
-		std::function<ConfigurationCallback> Configure;
-		std::function<ReleaseCallback> Release;
 	private:
 		bool configured;
 	};
@@ -273,10 +273,12 @@ private:
 		const char* version, const char* upload_data, 
 		size_t upload_data_size);
 	
-	static MHD_Result SendInternalErrResponse(MHD_Connection* connection) ;
-
-	static MHD_Result SendNotFoundResponse(MHD_Connection* connection) ;
 public:
+	static MHD_Result SendInternalErrResponse(MHD_Connection* connection);
+
+	static MHD_Result SendNotFoundResponse(MHD_Connection* connection);
+
+	static MHD_Result SendBadRequestResponse(MHD_Connection* connection);
 
 	template <typename AuthT, typename... Args>
 	void AddAuth(Args&&... args);

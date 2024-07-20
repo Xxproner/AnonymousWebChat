@@ -37,7 +37,11 @@ add_compile_definitions(ABS_PATH="${CMAKE_SOURCE_DIR}")
 add_compile_definitions(DB_PATH="${CMAKE_SOURCE_DIR}") #with ending `/'
 add_compile_definitions(HTML_SRC_PATH="${CMAKE_SOURCE_DIR}/html_src")
 
+# debug mode
 add_compile_definitions(DEBUG)
+add_compile_options(-g)
+
+# add_compile_options(-Wall -Wextra)
 
 add_executable(main ${SOURCES} ${MAIN_CPP_FILE})
 

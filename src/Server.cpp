@@ -158,6 +158,25 @@ MHD_Result Server::SendNotFoundResponse(MHD_Connection* connection)
 	return ret;
 }
 
+MHD_Result Server::SendBadRequestResponse(MHD_Connection* connection)
+{
+	MHD_Response* bad_request_response = 
+		MHD_create_response_from_buffer(strlen(BAD_REQUEST),
+			(void*)BAD_REQUEST, MHD_RESPMEM_PERSISTENT);
+	if (!bad_request_response)
+	{
+		return MHD_NO;
+	}
+
+	MHD_Result ret = MHD_queue_response(connection, 
+		MHD_HTTP_BAD_REQUEST, bad_request_response);
+
+	MHD_destroy_response(bad_request_response);
+
+	return ret;
+}
+
+
 /*
 authentificate needs to every connection?
 */
@@ -263,6 +282,8 @@ MHD_Result Server::JWTAuth(struct MHD_Connection* conn)
 void Server::CompletedConnectionCallback(void* server_this, MHD_Connection* conn, 
 		void** con_cls, MHD_RequestTerminationCode toe)
 {
+	typedef std::pair<Resource*, void**> BoundRes_t;
+
 // MHD_REQUEST_TERMINATED_COMPLETED_OK:
 // 	We finished sending the response.
 
@@ -276,25 +297,27 @@ void Server::CompletedConnectionCallback(void* server_this, MHD_Connection* conn
 // 	We had to close the session since MHD was being shut down.
 	std::ignore = toe;
 
-	if (*con_cls == NULL)
+	if (!*con_cls)
 	{
-		return;
+		// ok;
+		return ;
 	}
 
-	std::pair<Resource*, void**>* ptr_resource_n_cls = reinterpret_cast<
-		std::pair<Resource*, void**>*>(con_cls);
+	BoundRes_t* ptr_resource_n_cls = 
+		reinterpret_cast<BoundRes_t*>(*con_cls);
 
 	Resource* resource = ptr_resource_n_cls->first;
-
 	void** cls = ptr_resource_n_cls->second;
-
-	if (resource && resource->configured)
+	
+	if (resource)
 	{
-		resource->Release(cls); // noexcept
+		resource->configured = false;
+		resource->Release(cls);
 	}
 
 	delete cls;
 	delete ptr_resource_n_cls;
+	*con_cls = nullptr;
 };
 
 
@@ -304,6 +327,8 @@ MHD_Result Server::ReplyToConnection(
 					const char *version, const char *upload_data,
 					size_t *upload_data_size, void **con_cls)
 {
+	typedef std::pair<Resource*, void**> BoundRes_t;
+
 	Server* backvalue_server = 
 		reinterpret_cast<Server*>(cls);
 
@@ -313,6 +338,9 @@ MHD_Result Server::ReplyToConnection(
 	Resource* found_resource = backvalue_server->FindResource(
 		method_number, url);
 
+	BoundRes_t* res_n_cls = 
+		reinterpret_cast<BoundRes_t*>(*con_cls); // ???
+
 	if (found_resource == nullptr)
 	{
 #ifdef DEBUG
@@ -321,23 +349,28 @@ MHD_Result Server::ReplyToConnection(
 		return backvalue_server->SendNotFoundResponse(connection);
 	}
 
-	if (resource->configured)
+	if (!found_resource->configured)
 	{
-		if (*con_cls != NULL)
+		if (res_n_cls)
 		{
 			std::cerr << "I don't have idea what happens\n";
 			return MHD_NO;
 		}
 
-		*con_cls = new std::pair<Resource*, void**>>(resource, new void*);
+		res_n_cls = new BoundRes_t(found_resource, new void*);
+		*con_cls = reinterpret_cast<void*>(res_n_cls);
 
-		return resource->Configure(connection, (*con_cls)->second);
+		auto delay_ret = found_resource->Configure(connection, 
+			res_n_cls->second);
+
+		// found_resource->configured = true;
+		return delay_ret;
 	}
 
-
-	return found_resource->operator()(con_info, connection,
+	return found_resource->operator()(cls, connection,
 		upload_data, 
-		upload_data_size, (*con_cls)->second);
+		upload_data_size, 
+		res_n_cls->second);
 
 	// available methods
 	// if (strcmp(method, MHD_HTTP_METHOD_POST) != 0 && 
@@ -405,6 +438,8 @@ Server::Resource::Resource(int _method, const char* _url)
 	, url(strdupxx(_url))
 	, configured(false)
 {
+	// assert(_url && "Resource has null url!");
+	// url = strdupxx(_url);
 }
 
 
@@ -417,18 +452,18 @@ Server::Resource::~Resource()
 }
 
 
-int Server::GeneralServerGetResource::RegistrationTimeCheck() const noexcept
-{
-	return 0;
-};
+// int Server::GeneralServerGetResource::RegistrationTimeCheck() const noexcept
+// {
+// 	return 0;
+// };
 
-MHD_Result Server::GeneralServerGetResource::operator()(void* cls, 
-	struct MHD_Connection* conn,
-	const char* upload_data,
-	size_t* upload_data_size)
-{
-	return SendFile(conn, filename.c_str());
-}
+// MHD_Result Server::GeneralServerGetResource::operator()(void* cls, 
+// 	struct MHD_Connection* conn,
+// 	const char* upload_data,
+// 	size_t* upload_data_size)
+// {
+// 	return SendFile(conn, filename.c_str());
+// }
 
 int Server::RegisterResource(Resource* res)
 {

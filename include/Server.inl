@@ -54,11 +54,27 @@ inline bool Server::Resource::operator==(const Resource& that) const noexcept
 	return !(*this < that) && !(that < *this);
 }
 
-inline void Server::Resource::setConfigurationPolicy(ConfigurationCallback* conf_callb, ReleaseCallback* release_callb)
+// inline void Server::Resource::setConfigurationPolicy(
+// 	std::function<MHD_Result(MHD_Connection*, void**)> conf_callb, 
+// 	std::function<void(void**)>                        release_callb)
+// {
+// 	Configure = std::move(conf_callb);
+// 	Release = std::move(release_callb);
+// 	configured = true;
+// }
+
+inline MHD_Result Server::Resource::Configure(
+	MHD_Connection* conn,
+	void** con_cls)
 {
-	Configure = conf_callb;
-	Release = release_callb;
 	configured = true;
+	return MHD_YES;
+}
+
+inline void Server::Resource::Release(
+	void** con_cls)
+{
+	configured = false;
 }
 //============================== end Resource =====================================
 
