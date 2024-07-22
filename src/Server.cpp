@@ -351,11 +351,12 @@ MHD_Result Server::ReplyToConnection(
 
 	if (!found_resource->configured)
 	{
-		if (res_n_cls)
-		{
-			std::cerr << "I don't have idea what happens\n";
-			return MHD_NO;
-		}
+		/* check on incorrect backend logic */
+		// if (res_n_cls)
+		// {
+		// 	std::cerr << "I don't have idea what happens\n";
+		// 	return MHD_NO;
+		// }
 
 		res_n_cls = new BoundRes_t(found_resource, new void*);
 		*con_cls = reinterpret_cast<void*>(res_n_cls);
@@ -363,14 +364,16 @@ MHD_Result Server::ReplyToConnection(
 		auto delay_ret = found_resource->Configure(connection, 
 			res_n_cls->second);
 
-		// found_resource->configured = true;
+		found_resource->configured = true;
 		return delay_ret;
 	}
 
+	// return 
 	return found_resource->operator()(cls, connection,
 		upload_data, 
 		upload_data_size, 
 		res_n_cls->second);
+
 
 	// available methods
 	// if (strcmp(method, MHD_HTTP_METHOD_POST) != 0 && 

@@ -296,6 +296,7 @@ public:
 		if (!PostDataUtils::IsParticipantCompleted(member, url))
 		{
 			Server::SendBadRequestResponse(connection);
+			// not completed data
 			return MHD_NO;
 		}
 
@@ -323,8 +324,11 @@ public:
 			MHD_post_process(reinterpret_cast<MHD_PostProcessor*>(*con_cls), 
 				upload_data, *upload_data_size);
 
+			*upload_data_size = 0; // ????
+
 			return MHD_YES;
 		}
+#warning "Bad responsibility of upload_data!"
 
 		// return handle_post_data(connection, session);
 		return HandlePostData(connection, con_cls);
@@ -397,6 +401,8 @@ public:
 		}
 
 		uniq_pp.reset(temp);
+
+		*con_cls = uniq_pp.get();
 
 		return MHD_YES;
 	}
