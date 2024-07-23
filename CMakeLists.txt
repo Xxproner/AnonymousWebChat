@@ -5,6 +5,7 @@ project(server)
 set (SOURCES
 	# src/Server.cpp
 	src/ServerCore.cpp
+	# src/Resources.cpp
 	src/ServerDB.cpp
 	src/Participant.cpp
 	src/DB.cpp
@@ -28,13 +29,12 @@ set(CMAKE_CXX_STANDARD 17 REQUIRED)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-# find_package( Boost 1.8.3 COMPONENTS lexical_cast REQUIRED )
+# find_package( Boost 1.8.3 COMPONENTS lexical_cast json REQUIRED )
 # include_directories( ${Boost_INCLUDE_DIR} )
-
 
 # add resources to cmake
 add_compile_definitions(ABS_PATH="${CMAKE_SOURCE_DIR}")
-add_compile_definitions(DB_PATH="${CMAKE_SOURCE_DIR}") #with ending `/'
+add_compile_definitions(DB_PATH="${CMAKE_SOURCE_DIR}/build/users.db") #with ending `/'
 add_compile_definitions(HTML_SRC_PATH="${CMAKE_SOURCE_DIR}/html_src")
 
 # debug mode

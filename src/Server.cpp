@@ -11,8 +11,6 @@
 
 // #include "htmlParser.hpp"
 
-#warning "ServerDB is public member!"
-
 // ssize_t *MHD_ContentReaderCallback (void *cls, uint64_t pos, char *buf, size_t max)
 ssize_t Server::xxFileReaderCallback(void* cls, uint64_t pos, char* buf, size_t max)
 {

@@ -22,43 +22,43 @@ private:
                               attr_n_type{"key", "VARCHAR(30)"} };
   mutable std::mutex db_mutex;
 
-  class server_db_internal_error : public std::runtime_error
-  {
-    std::string m_error;
-    public:
-      // server_db_internal_error() = default;
-      server_db_internal_error(const char* errormsg) : 
-        std::runtime_error(errormsg), m_error("DB internal exception : ")
-      {
-        m_error.append(errormsg);
-      }
+  // class server_db_internal_error : public std::runtime_error
+  // {
+  //   std::string m_error;
+  //   public:
+  //     // server_db_internal_error() = default;
+  //     server_db_internal_error(const char* errormsg) : 
+  //       std::runtime_error(errormsg), m_error("DB internal exception : ")
+  //     {
+  //       m_error.append(errormsg);
+  //     }
 
-      server_db_internal_error(const std::string& errormsg) : 
-        std::runtime_error(errormsg), m_error("DB internal exception : ")
-      {
-        m_error.append(errormsg);
-      }
+  //     server_db_internal_error(const std::string& errormsg) : 
+  //       std::runtime_error(errormsg), m_error("DB internal exception : ")
+  //     {
+  //       m_error.append(errormsg);
+  //     }
 
-      server_db_internal_error(const server_db_internal_error& another) noexcept :
-        std::runtime_error(another)
-      { 
-        m_error.assign(another.what());
-      }
+  //     server_db_internal_error(const server_db_internal_error& another) noexcept :
+  //       std::runtime_error(another)
+  //     { 
+  //       m_error.assign(another.what());
+  //     }
 
-      const server_db_internal_error& 
-        operator=(const server_db_internal_error& another) noexcept
-      {
-        m_error.assign(another.what());
-        return *this;
-      }
+  //     const server_db_internal_error& 
+  //       operator=(const server_db_internal_error& another) noexcept
+  //     {
+  //       m_error.assign(another.what());
+  //       return *this;
+  //     }
 
-      virtual const char* what() const noexcept override
-      {
-        return m_error.c_str();
-      }
+  //     virtual const char* what() const noexcept override
+  //     {
+  //       return m_error.c_str();
+  //     }
 
-      ~server_db_internal_error() = default;
-  };
+  //     ~server_db_internal_error() = default;
+  // };
 
   static int CountRecords_callback(void* data, int clm_num, char** fields, char** clm_names)
   {
@@ -97,6 +97,11 @@ public:
   int16_t AddParticipant(const Participant& member_info);
 
   int16_t AccessParticipant(const Participant& member_info) const ;
+
+  /**
+   * return string decribtion of Serverdb error code
+   * and set http_code to specified HTTP CODE
+  */
 
   // void close();
 
