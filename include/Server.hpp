@@ -12,27 +12,6 @@
 
 namespace HTTP
 {
-	enum {
-		GET = 0,
-		HEAD,
-		POST,
-		PUT,
-		DELETE,
-		CONNECT,
-		OPTIONS,
-		TRACE,
-		PATCH
-	};
-
-	// Here we only support HTTP/1.1
-	enum HttpVersion { // class
-		HTTP_0_9 = 9,
-		HTTP_1_0 = 10,
-		HTTP_1_1 = 11,
-		HTTP_2_0 = 20
-	};
-
-
 	enum HttpStatusCode { // class
 		Continue = 100,
 		SwitchingProtocols = 101,
@@ -150,7 +129,7 @@ public:
 	static constexpr const char* INTERNAL_ERROR = "<html><body>Internal error!</body></html>";
 	static constexpr const char *BAD_REQUEST = "<html><body>Think next time before request</body></html>";
 
-		static constexpr const char *ERROR_PAGE = "";
+	static constexpr const char *ERROR_PAGE = "";
 
 	static constexpr const char* EMPTY_RESPONSE = "";
 	
@@ -160,37 +139,6 @@ public:
 
 	static MHD_Result SendFile(struct MHD_Connection* conn,
 		std::string_view page, uint16_t http_status_code = MHD_HTTP_OK);
-
-	class Resource
-	{
-	public:
-		Resource(int _method, const char* url);
-
-		virtual MHD_Result operator()(void* cls, struct MHD_Connection* conn,
-			const char* upload_data,
-			size_t* upload_data_size, void** con_cls)  = 0;
-
-		virtual bool operator<(const Resource& that) const noexcept final;
-
-		virtual bool operator==(const Resource& that) const noexcept final;
-
-		virtual ~Resource() noexcept;
-
-		typedef MHD_Result(ConfigurationCallback)(MHD_Connection*, void**);
-		
-		typedef void(ReleaseCallback)(void**);
-		
-		virtual ConfigurationCallback Configure;
-
-		virtual ReleaseCallback Release;
-
-	 	friend Server;
-	public:
-		const int method;
-		const char*  url;
-	private:
-		bool configured;
-	};
 
 	/**
 	 *  return 0 in success 
@@ -241,38 +189,17 @@ private:
 	*/
 
 	Resource* FindResource(int method, const std::string& url);
-	
-	class ResourceComp
-	{
-	public:
-		bool operator()(const std::unique_ptr<Resource>& lhs, 
-			const std::unique_ptr<Resource>& rhs) const noexcept;
 
-		bool operator()(const std::unique_ptr<Resource>& lhs,
-			const std::string& url) const noexcept;
-
-		bool operator()(const std::string& url,
-			const std::unique_ptr<Resource>& lhs) const noexcept;
-
-		bool operator()(const Resource& res,
-			const std::unique_ptr<Resource>& rhs) const noexcept;
-
-		bool operator()(const std::unique_ptr<Resource>& lhs,
-			const Resource& res) const noexcept;
-
-		using is_transparent = void;
-	};
-
-	typedef std::multiset<std::unique_ptr<Resource>,
-		ResourceComp> mResource;
+	// typedef std::multiset<std::unique_ptr<Resource>,
+	// 	ResourceComp> mResource;
 	 
-	mResource resources;
+	// mResource resources;
 
 	typedef MHD_Result(*ResourcePolicyCallback)(struct MHD_Connection* conn,
 		const char* url, const char* method, 
 		const char* version, const char* upload_data, 
 		size_t upload_data_size);
-	
+
 public:
 	static MHD_Result SendInternalErrResponse(MHD_Connection* connection);
 
