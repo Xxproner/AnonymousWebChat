@@ -1,5 +1,7 @@
 #include "Resource.hpp"
 
+#include <string_view>
+
 char* strdupxx(std::string_view str)
 {
 	size_t str_len = str.length();
@@ -8,7 +10,7 @@ char* strdupxx(std::string_view str)
 	return new_str;
 }
 
-Resource::Resource(http_methd_t _method, const char* _url)
+Resource::Resource(HTTP::http_methd_t _method, const char* _url)
 	: method(_method)
 	, url(strdupxx(_url))
 	// , configured(false)

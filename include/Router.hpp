@@ -4,49 +4,57 @@
 // #include "microhttpd.h"
 
 #include <memory>
+#include <type_traits>
 
-#include "boost/property_tree/pthree.hpp"
+#include "boost/property_tree/ptree.hpp"
 #include "Resource.hpp"
 
-using namespace pt = boost::property_tree;
+namespace pt = boost::property_tree;
 
+template <typename T>
+struct const_ref_details_
+{
+	using type = typename std::reference_wrapper<const T>::type;
+
+
+	using clear_T = typename std::remove_reference<T>::type;
+};
+
+template <typename EndpointData_t> // default contructible
 class Router
 {
 public:
-	using Routers_t = pt::basic_ptree<std::string, EndpointData>;
 
-	// Router(const Routers_t::key_type& domain);
+	static_assert(std::is_trivially_constructible_v<EndpointData_t>);
+	// router owns endpointdata 
+	// then we need to avoid copy ???
 
-	struct EndpointData
-	{
-		// EndpointData();
+	using Routers_t = pt::basic_ptree<std::string, EndpointData_t>;
 
-		EndpointData(HTTP_METHD_t method, const char* url);
+	Router() = default;
 
-		std::unique_ptr<Resource> endp_resource;
+	Router(const EndpointData_t& root_data);
 
-		// Routers_t::key_type uri;
-	};
+	// template <typename EndpointData_t
+	// 	std::enable_if< 
+	// 		std::is_invocable_v<
+	// 			EndpointD_comp, std::const_ref_details_<EndpointData_t>::type, std::const_ref_details_<EndpointData_t>::type
+	// 		>  
+	// 	>
+	// >
+	EndpointData_t* FindNearestRoute(
+		const typename Routers_t::key_type& url);
 
-	struct RouteConfig
-	{
+	template <typename... Args>
+	int AddRoute(const typename Routers_t::key_type& url, Args&&... args); // , const RouteConfig& route_conf = RouteConfig);
 
-	};
-
-	Resource* FindRoute(
-		const Routers_t::key_type& url,
-		HTTP_METHD_t,
-		);
-
-	unknown_t AddRoute(const std::string& url); // , const RouteConfig& route_conf = RouteConfig);
-
-	unknown_t AddStaticRoute(const std::string& url);
+	// AddStaticRoute(const std::string& url);
 
 private:
 	Routers_t m_router;
 };
 
 
-
+#include "Router.inl"
 
 #endif // ROUTER_HPP
