@@ -1,13 +1,12 @@
 #ifndef ROUTER_HPP
 #define ROUTER_HPP
 
-// #include "microhttpd.h"
-
 #include <memory>
 #include <type_traits>
+#include <optional>
+#include <memory>
 
 #include "boost/property_tree/ptree.hpp"
-#include "Resource.hpp"
 
 namespace pt = boost::property_tree;
 
@@ -20,18 +19,53 @@ struct const_ref_details_
 	using clear_T = typename std::remove_reference<T>::type;
 };
 
-template <typename EndpointData_t> // default contructible
-class Router
+template <typename Ptr_EndpointData_t, typename Incompleted = void>
+class Router // for pointers
 {
+	// I am confused about Router class owns performed data to it
+	// and we can meet problem: invalid pointers
 public:
 
-	static_assert(std::is_trivially_constructible_v<EndpointData_t>);
+	using EndpointData_t = typename std::remove_pointer<Ptr_EndpointData_t>::type;
+
+	using Routers_t = pt::basic_ptree<std::string, std::unique_ptr<EndpointData_t>>;
+
+	Router(const EndpointData_t& root_data);
+
+	std::pair<std::string, 
+		typename std::add_lvalue_reference<EndpointData_t>::type>
+	FindNearestRoute(const typename Routers_t::key_type& url);
+
+	EndpointData_t& FindRoute(
+		const typename Routers_t::key_type& url) noexcept(false);
+
+	template <typename... Args>
+	int AddRoute(const typename Routers_t::key_type& url, Args&&... args); // , const RouteConfig& route_conf = RouteConfig);
+
+private:
+	Routers_t m_router;	
+};
+
+template <typename EndpointData_t> 
+class Router<EndpointData_t, typename std::enable_if_t<!std::is_pointer_v<EndpointData_t>>>
+{
+
+	static_assert(!std::is_same<EndpointData_t, bool>::value, "Reject boolean type!");
+
+public:
+
+
+	// static_assert(std::is_same<path_type, std::string>::value, "Always true");
+
+
 	// router owns endpointdata 
 	// then we need to avoid copy ???
+	using Routers_t = pt::basic_ptree<std::string, std::optional<EndpointData_t>>;
 
-	using Routers_t = pt::basic_ptree<std::string, EndpointData_t>;
-
-	Router() = default;
+	// if we want default ctor
+	// then find nearest route may fail
+	// cause no endpoint data in the all tree
+	// Router() = default; !
 
 	Router(const EndpointData_t& root_data);
 
@@ -42,8 +76,21 @@ public:
 	// 		>  
 	// 	>
 	// >
-	EndpointData_t* FindNearestRoute(
-		const typename Routers_t::key_type& url);
+	std::pair<std::string, 
+		std::optional<EndpointData_t>&>
+	FindNearestRoute(const typename Routers_t::key_type& url);
+
+	std::pair<std::string, 
+		const std::optional<EndpointData_t>&>
+	FindNearestRoute(const typename Routers_t::key_type& url) const;
+
+	std::optional<EndpointData_t>& FindRoute(
+		const typename Routers_t::key_type& url) noexcept(false);
+
+	const std::optional<EndpointData_t>& FindRoute(
+		const typename Routers_t::key_type& url) const noexcept(false);
+	
+	int AddRoute(const typename Routers_t::key_type& url, EndpointData_t endpoint_data);
 
 	template <typename... Args>
 	int AddRoute(const typename Routers_t::key_type& url, Args&&... args); // , const RouteConfig& route_conf = RouteConfig);
