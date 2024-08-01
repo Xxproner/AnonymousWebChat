@@ -138,6 +138,22 @@ MHD_Result Server::SendInternalErrResponse(MHD_Connection* connection)
 	return ret;
 }
 
+MHD_Result Server::SendMethodNotAllowedResponse(MHD_Connection* connection)
+{
+	MHD_Response* not_allowed_response = 
+		MHD_create_response_from_buffer(strlen( NOT_ALLOWED_METHOD), 
+			(void*) NOT_ALLOWED_METHOD, MHD_RESPMEM_PERSISTENT);
+	if (!not_allowed_response)
+	{
+		return MHD_NO;
+	}
+
+	MHD_Result ret = MHD_queue_response(connection, MHD_HTTP_METHOD_NOT_ALLOWED, not_allowed_response);
+
+	MHD_destroy_response(not_allowed_response);
+
+	return ret;
+}
 
 MHD_Result Server::SendNotFoundResponse(MHD_Connection* connection)
 {
@@ -274,6 +290,27 @@ MHD_Result Server::JWTAuth(struct MHD_Connection* conn)
 	assert(false && "Imcompleted!");
 }
 
+
+MHD_Result Server::StartServer(bool is_blocked)
+{
+	// webserver launch
+	ConfigurationCallback();
+
+	m_working = true;
+
+	return MHD_YES;
+}
+
+MHD_Result Server::StopServer(bool easy)
+{
+	server_core.stop(/*easy*/);
+
+	m_working = false;
+
+	return MHD_YES;
+}
+
+
 /**
  * static function 
  * */
@@ -301,20 +338,6 @@ void Server::CompletedConnectionCallback(void* server_this, MHD_Connection* conn
 		return ;
 	}
 
-	BoundRes_t* ptr_resource_n_cls = 
-		reinterpret_cast<BoundRes_t*>(*con_cls);
-
-	Resource* resource = ptr_resource_n_cls->first;
-	void** cls = ptr_resource_n_cls->second;
-	
-	if (resource)
-	{
-		resource->configured = false;
-		resource->Release(cls);
-	}
-
-	delete cls;
-	delete ptr_resource_n_cls;
 	*con_cls = nullptr;
 };
 
@@ -325,19 +348,16 @@ MHD_Result Server::ReplyToConnection(
 					const char *version, const char *upload_data,
 					size_t *upload_data_size, void **con_cls)
 {
-	typedef std::pair<Resource*, void**> BoundRes_t;
+	std::ignore = con_cls;
+	std::ignore = version;
 
 	Server* backvalue_server = 
 		reinterpret_cast<Server*>(cls);
 
-	int method_number = backvalue_server->CombMethod(method);
 	// dont need to check method
+	int method_number = backvalue_server->CombMethod(method);
 
-	Resource* found_resource = backvalue_server->FindResource(
-		method_number, url);
-
-	BoundRes_t* res_n_cls = 
-		reinterpret_cast<BoundRes_t*>(*con_cls); // ???
+	Resource* found_resource = backvalue_server->FindResource(method_number, url);
 
 	if (found_resource == nullptr)
 	{
@@ -347,31 +367,21 @@ MHD_Result Server::ReplyToConnection(
 		return backvalue_server->SendNotFoundResponse(connection);
 	}
 
-	if (!found_resource->configured)
+	if (found_resource->method != method_number)
 	{
-		/* check on incorrect backend logic */
-		// if (res_n_cls)
-		// {
-		// 	std::cerr << "I don't have idea what happens\n";
-		// 	return MHD_NO;
-		// }
-
-		res_n_cls = new BoundRes_t(found_resource, new void*);
-		*con_cls = reinterpret_cast<void*>(res_n_cls);
-
-		auto delay_ret = found_resource->Configure(connection, 
-			res_n_cls->second);
-
-		found_resource->configured = true;
-		return delay_ret;
+		return backvalue_server->SendMethodNotAllowedResponse(connection);
 	}
 
-	// return 
-	return found_resource->operator()(cls, connection,
-		upload_data, 
-		upload_data_size, 
-		res_n_cls->second);
+	if (!found_resource->configured)
+	{
+		MHD_Result required_passed = found_resource->Required(connection);
 
+		return required_passed;
+	}
+
+	return found_resource->operator()(connection,
+		upload_data, 
+		upload_data_size);
 
 	// available methods
 	// if (strcmp(method, MHD_HTTP_METHOD_POST) != 0 && 
@@ -426,31 +436,7 @@ MHD_Result Server::ReplyToConnection(
 	
 }
 
-char* strdupxx(std::string_view str)
-{
-	size_t str_len = str.length();
-	char* new_str = new char[str_len];
-	std::char_traits<char>::copy(new_str, str.data(), str_len + 1); // terminating zero
-	return new_str;
-}
 
-Server::Resource::Resource(int _method, const char* _url)
-	: method(_method)
-	, url(strdupxx(_url))
-	, configured(false)
-{
-	// assert(_url && "Resource has null url!");
-	// url = strdupxx(_url);
-}
-
-
-Server::Resource::~Resource()
-{
-	if (url)
-	{
-		delete[] url; 
-	}
-}
 
 
 // int Server::GeneralServerGetResource::RegistrationTimeCheck() const noexcept
@@ -468,23 +454,26 @@ Server::Resource::~Resource()
 
 int Server::RegisterResource(Resource* res)
 {
-	const auto hint = resources.lower_bound(*res);
-	if (hint != resources.cend())
-	{
-		auto fin_range = std::next(hint);
-		while ((fin_range != resources.cend()) && 
-			((*fin_range).get()->operator==(*res))) // equivalent key
-		{
-			if ((*fin_range)->method == res->method) // equivalent url and method is not allowed
-			{
-				return -1;
-			}
+	// const auto hint = resources.lower_bound(*res);
+	// if (hint != resources.cend())
+	// {
+	// 	auto fin_range = std::next(hint);
+	// 	while ((fin_range != resources.cend()) && 
+	// 		((*fin_range).get()->operator==(*res))) // equivalent key
+	// 	{
+	// 		if ((*fin_range)->method == res->method) // equivalent url and method is not allowed
+	// 		{
+	// 			return -1;
+	// 		}
 
-			++fin_range;
-		}
-	}
+	// 		++fin_range;
+	// 	}
+	// }
 
-	resources.emplace_hint(hint, res);
+	// resources.emplace_hint(hint, res);
+
+	m_router.AddRoute(res->url, res);
+
 	return 0;
 }
 
@@ -569,24 +558,24 @@ int Server::RegisterResource(Resource* res)
 // private or not
 Server::Resource* Server::FindResource(int method, const std::string& url)
 {
-	Resource* temp = nullptr;
-	// auto transparent_comp = resources.key_comp();
-	mResource::const_iterator found_result = resources.lower_bound(url);	
-	if (found_result != resources.cend())
-	{
-		while(found_result != resources.cend() && 
-			(strcmp(found_result->get()->url, url.c_str()) == 0)) // equivalent url
-		{
-			if ((*found_result)->method == method)
-			{
-				temp = (*found_result).get();
-				break;
-			}
-			found_result++;
-		}
-	}
+	// Resource* temp = nullptr;
+	// // auto transparent_comp = resources.key_comp();
+	// mResource::const_iterator found_result = resources.lower_bound(url);	
+	// if (found_result != resources.cend())
+	// {
+	// 	while(found_result != resources.cend() && 
+	// 		(strcmp(found_result->get()->url, url.c_str()) == 0)) // equivalent url
+	// 	{
+	// 		if ((*found_result)->method == method)
+	// 		{
+	// 			temp = (*found_result).get();
+	// 			break;
+	// 		}
+	// 		found_result++;
+	// 	}
+	// }
 
-	return temp;
+	return m_router.FindRoute(url);
 }
 
 Server::~Server() noexcept

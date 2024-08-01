@@ -28,19 +28,28 @@ public:
 
 	using EndpointData_t = typename std::remove_pointer<Ptr_EndpointData_t>::type;
 
-	using Routers_t = pt::basic_ptree<std::string, std::unique_ptr<EndpointData_t>>;
+	using Routers_t = pt::basic_ptree<std::string, std::shared_ptr<EndpointData_t>>;
 
-	Router(const EndpointData_t& root_data);
+	typedef boost::property_tree::iptree ptree;
 
-	std::pair<std::string, 
-		typename std::add_lvalue_reference<EndpointData_t>::type>
-	FindNearestRoute(const typename Routers_t::key_type& url);
+	Router(EndpointData_t* root_data) noexcept;
 
-	EndpointData_t& FindRoute(
+	std::pair<std::string, EndpointData_t*>
+	FindNearestRoute(const typename Routers_t::key_type& url) noexcept(false);
+
+	std::pair<std::string, const EndpointData_t*>
+	FindNearestRoute(const typename Routers_t::key_type& url) const noexcept(false);
+
+	EndpointData_t* FindRoute(
 		const typename Routers_t::key_type& url) noexcept(false);
 
+	const EndpointData_t* FindRoute(
+		const typename Routers_t::key_type& url) const noexcept(false);
+
+	int AddRoute(const typename Routers_t::key_type& url, EndpointData_t* endpoint_data) noexcept(false); 
+
 	template <typename... Args>
-	int AddRoute(const typename Routers_t::key_type& url, Args&&... args); // , const RouteConfig& route_conf = RouteConfig);
+	int AddRoute(const typename Routers_t::key_type& url, Args&&... args) noexcept(false);
 
 private:
 	Routers_t m_router;	
@@ -51,15 +60,20 @@ class Router<EndpointData_t, typename std::enable_if_t<!std::is_pointer_v<Endpoi
 {
 
 	static_assert(!std::is_same<EndpointData_t, bool>::value, "Reject boolean type!");
-
+	static_assert(std::is_move_constructible<EndpointData_t>::value || 
+			std::is_trivially_move_constructible<EndpointData_t>::value, "Reject not movable type!");
+	static_assert(std::is_move_assignable<EndpointData_t>::value ||
+			std::is_trivially_move_assignable<EndpointData_t>::value, "Reject not movable type!");
 public:
-
 
 	// static_assert(std::is_same<path_type, std::string>::value, "Always true");
 
 
 	// router owns endpointdata 
 	// then we need to avoid copy ???
+
+
+	typedef boost::property_tree::iptree ptree;
 	using Routers_t = pt::basic_ptree<std::string, std::optional<EndpointData_t>>;
 
 	// if we want default ctor
@@ -67,7 +81,7 @@ public:
 	// cause no endpoint data in the all tree
 	// Router() = default; !
 
-	Router(const EndpointData_t& root_data);
+	Router(EndpointData_t root_data);
 
 	// template <typename EndpointData_t
 	// 	std::enable_if< 
@@ -78,11 +92,11 @@ public:
 	// >
 	std::pair<std::string, 
 		std::optional<EndpointData_t>&>
-	FindNearestRoute(const typename Routers_t::key_type& url);
+	FindNearestRoute(const typename Routers_t::key_type& url) noexcept(false);
 
 	std::pair<std::string, 
 		const std::optional<EndpointData_t>&>
-	FindNearestRoute(const typename Routers_t::key_type& url) const;
+	FindNearestRoute(const typename Routers_t::key_type& url) const noexcept(false);
 
 	std::optional<EndpointData_t>& FindRoute(
 		const typename Routers_t::key_type& url) noexcept(false);
@@ -90,14 +104,17 @@ public:
 	const std::optional<EndpointData_t>& FindRoute(
 		const typename Routers_t::key_type& url) const noexcept(false);
 	
-	int AddRoute(const typename Routers_t::key_type& url, EndpointData_t endpoint_data);
+	int AddRoute(const typename Routers_t::key_type& url, EndpointData_t endpoint_data) noexcept(false);
 
 	template <typename... Args>
-	int AddRoute(const typename Routers_t::key_type& url, Args&&... args); // , const RouteConfig& route_conf = RouteConfig);
+	int AddRoute(const typename Routers_t::key_type& url, Args&&... args) noexcept(false); // , const RouteConfig& route_conf = RouteConfig);
 
 	// AddStaticRoute(const std::string& url);
 
-private:
+private: // methods
+
+
+private: // members
 	Routers_t m_router;
 };
 

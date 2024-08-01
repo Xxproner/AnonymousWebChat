@@ -10,3 +10,4 @@ ip2location_db/*
 
 src/tests/build/*
 
+/src/empty_main.cpp

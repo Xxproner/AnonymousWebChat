@@ -3,10 +3,10 @@
 // class UrlUtils
 // {
 // public:
-	std::vector<std::string_view>
+	std::vector<std::string>
 		UrlUtils::Split(std::string_view spliting_string)
 	{
-		std::vector<std::string_view> splited_url;
+		std::vector<std::string> splited_url;
 		size_t rd_pos = 0;
 	    size_t curr_len = 0;
 
@@ -48,4 +48,29 @@
 
 	    return tokens;
 	}
+
+
+	void UrlUtils::CheckUrlCorrectnessThrow_V(
+		const std::string& url) noexcept(false)
+	{
+		if (url.empty() || url[0] != '/')
+		{
+#if defined DEBUG
+			std::cerr << "Url invalid syntax:" << 
+				url << '\n' << "Throw..." << std::endl;
+#endif 
+			throw std::runtime_error("Url invalid syntax!");
+		}
+	};
+
+	bool UrlUtils::CheckUrlCorrectness(
+		const std::string& url) noexcept
+	{
+		if (url.empty() || url[0] != '/')
+		{
+			return false;
+		}
+
+		return true;
+	};
 // };

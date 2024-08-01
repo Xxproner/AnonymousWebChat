@@ -9,39 +9,24 @@
 
 #include "ServerCore.hpp"
 #include "ServerDB.hpp"
+#include "Router.hpp"
 
-namespace HTTP
-{
-	enum HttpStatusCode { // class
-		Continue = 100,
-		SwitchingProtocols = 101,
-		EarlyHints = 103,
-		Ok = 200,
-		Created = 201,
-		Accepted = 202,
-		NonAuthoritativeInformation = 203,
-		NoContent = 204,
-		ResetContent = 205,
-		PartialContent = 206,
-		MultipleChoices = 300,
-		MovedPermanently = 301,
-		Found = 302,
-		NotModified = 304,
-		BadRequest = 400,
-		Unauthorized = 401,
-		Forbidden = 403,
-		NotFound = 404,
-		MethodNotAllowed = 405,
-		RequestTimeout = 408,
-		Conflict = 409,
-		ImATeapot = 418,
-		InternalServerError = 500,
-		NotImplemented = 501,
-		BadGateway = 502,
-		ServiceUnvailable = 503,
-		GatewayTimeout = 504,
-		HttpVersionNotSupported = 505
-	};
+// resource is entity of server
+// #include "Resource.hpp"
+
+namespace HTTP {
+enum : uint16_t {
+		GET = 0,
+		HEAD,
+		POST,
+		PUT,
+		DELETE,
+		CONNECT,
+		OPTIONS,
+		TRACE,
+		PATCH
+}; 
+	typedef uint16_t http_methd_t;
 }; // namespace HTTP
 
 
@@ -108,11 +93,11 @@ public:
 		, uint16_t port
 		, MHD_AcceptPolicyCallback acceptCallback
 		, void* param2
-		, Args... args);
+		, Args&&... args);
 
-	const ServerCore& operator()() const { return server_core ; }
+	// const ServerCore& operator()() const { return server_core ; }
 	
-	ServerCore& operator()() { return server_core; }
+	// ServerCore& operator()() { return server_core; }
 
 	Server& operator=(const Server&) = delete;
 	Server(const Server&) = delete;
@@ -127,7 +112,8 @@ public:
 
 	static constexpr const char* NOT_FOUND = "<html><body>Not found!</body></html>";
 	static constexpr const char* INTERNAL_ERROR = "<html><body>Internal error!</body></html>";
-	static constexpr const char *BAD_REQUEST = "<html><body>Think next time before request</body></html>";
+	static constexpr const char *BAD_REQUEST = "<html><body>Think next time before request!</body></html>";
+	static constexpr const char *NOT_ALLOWED_METHOD = "<html><body>Method not allowed!</body></html>";
 
 	static constexpr const char *ERROR_PAGE = "";
 
@@ -135,10 +121,86 @@ public:
 	
 	~Server() noexcept;
 
-	constexpr bool is_working() const { return working; };
+	constexpr bool is_working() const { return m_working; };
+
+	MHD_Result StartServer(bool is_blocked = false);
+
+	template <typename... Args>
+	void SaveConfiguration(Args&&... args);
+
+	MHD_Result StopServer(bool easy = false); // easy or not
 
 	static MHD_Result SendFile(struct MHD_Connection* conn,
 		std::string_view page, uint16_t http_status_code = MHD_HTTP_OK);
+
+	// only for syns webserver
+	struct RequestComplex
+	{
+		RequestComplex() = default;
+
+		void Release();
+
+		~RequestComplex() = default;
+
+		constexpr bool Filled() const { return is_filled; }
+
+		bool is_filled = false;
+		size_t upload_data_size = 0;
+		std::string uri;
+		std::string upload_data;
+	};
+
+	class Resource
+	{
+	public:
+		Resource(HTTP::http_methd_t _method, const char* url);
+
+		virtual MHD_Result operator()(struct MHD_Connection* conn,
+			const char* upload_data,
+			size_t upload_data_size) = 0;
+
+		virtual bool operator<(const Resource& that) const noexcept final;
+
+		virtual bool operator==(const Resource& that) const noexcept final;
+
+		/**
+		 * Required confiquration and 
+		 * property of connection 
+		 * and user takes responsibility to answer 
+		 * if it failed! Return is_success
+		 * */
+		virtual MHD_Result Required(struct MHD_Connection*) const noexcept { return MHD_YES; };
+
+		virtual ~Resource() noexcept;
+
+	 	friend Server;
+	public:
+		const HTTP::http_methd_t method;
+		const char*           url;
+	private:
+		bool configured = false;
+	};
+
+	class ResourceComp
+	{
+	public:
+		bool operator()(const std::unique_ptr<Resource>& lhs, 
+			const std::unique_ptr<Resource>& rhs) const noexcept;
+
+		bool operator()(const std::unique_ptr<Resource>& lhs,
+			const std::string& url) const noexcept;
+
+		bool operator()(const std::string& url,
+			const std::unique_ptr<Resource>& lhs) const noexcept;
+
+		bool operator()(const Resource& res,
+			const std::unique_ptr<Resource>& rhs) const noexcept;
+
+		bool operator()(const std::unique_ptr<Resource>& lhs,
+			const Resource& res) const noexcept;
+
+		using is_transparent = void;
+	};
 
 	/**
 	 *  return 0 in success 
@@ -148,7 +210,7 @@ public:
 
 	template<typename ...Args, 
 		typename std::enable_if<std::is_same<Args, std::add_pointer_t<Server::Resource>>::value>::type...>
-	int RegisterResources(Resource* resource, Args...);
+	int RegisterResources(Resource* resource, Args&&...);
 
 	// int RegisterHTMLPage(const char* url, const char* file);
 
@@ -207,11 +269,10 @@ public:
 
 	static MHD_Result SendBadRequestResponse(MHD_Connection* connection);
 
+	static MHD_Result SendMethodNotAllowedResponse(MHD_Connection* connection);
+
 	template <typename AuthT, typename... Args>
 	void AddAuth(Args&&... args);
-
-	typedef MHD_Result (ConfigurationCallback)(MHD_Connection*,
-		const char*, const char*, void**);
 
 private:
 	static constexpr const char* DENIED =
@@ -227,11 +288,18 @@ private:
 
 private:	
 
-	bool working = false;
+	bool m_working = false;
 
 	ServerCore server_core;
+
+	RequestComplex request_complex;
+
+	std::function<MHD_Result()> ConfigurationCallback;
+
+	Router<Resource*> m_router;
 };
 
+#include "Resource.inl"
 
 #include "Server.inl"
 
