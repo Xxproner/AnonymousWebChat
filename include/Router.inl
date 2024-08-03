@@ -15,6 +15,9 @@ public:
 
 	static bool 
 		CheckUrlCorrectness(const std::string& url) noexcept;
+
+	static std::string 
+		EraseQueryParams(const std::string& url) noexcept;
 };
 
 template <typename Ptr_EndpointData_t, typename Enable>
@@ -25,7 +28,6 @@ Router<Ptr_EndpointData_t, Enable>::Router(
 {
 	// std::cerr << "Router for pointers owns data. Be careful with valid pointer!\n";
 	// m_router.data();
-
 };
 
 
@@ -72,8 +74,11 @@ Router<Ptr_EndpointData_t, Enable>::FindRoute(
 
 	size_t back_shift = url.back() == '/' ? 1 : 0;
 
-	return m_router.get_child(ptree::path_type{url.substr(1ul, url.length() - back_shift), '/'}).data().get();
+	auto boost_optional_value = 
+		m_router.get_child_optional(ptree::path_type{url.substr(1ul, url.length() - back_shift), '/'});
 
+	return boost_optional_value ? boost_optional_value->data().get() : // operator bool
+		nullptr;
 };
 
 template <typename Ptr_EndpointData_t, typename Enable>	
@@ -85,7 +90,11 @@ Router<Ptr_EndpointData_t, Enable>::FindRoute(
 
 	size_t back_shift = url.back() == '/' ? 1 : 0;
 
-	return m_router.get(ptree::path_type{url.substr(1ul, url.length() - back_shift), '/'}).get();
+	auto boost_optional_value = 
+		m_router.get_child_optional(ptree::path_type{url.substr(1ul, url.length() - back_shift), '/'});
+
+	return boost_optional_value ? boost_optional_value->data().get() : // operator bool
+		nullptr;
 
 };
 

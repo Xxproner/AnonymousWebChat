@@ -1,1 +1,4 @@
-1) finish Server::RegisterHTMLPage(js src found and added to resources but css not -> boost HTML::Parser)
+1) router system keep only query string when it is last of uri
+all function are consider it as logic
+2) learn other http methods
+3) solve problem with std::forward and perfect forwarding in SaveConfiguration

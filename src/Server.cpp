@@ -5,10 +5,10 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
-#include <chrono>
+// #include <chrono>
 #include <cassert>
-#include <regex>
-
+// #include <regex>
+#include <tuple>
 // #include "htmlParser.hpp"
 
 // ssize_t *MHD_ContentReaderCallback (void *cls, uint64_t pos, char *buf, size_t max)
@@ -109,17 +109,17 @@ MHD_Result Server::SendFile(
 };
 
 
-int Server::CombMethod(std::string_view finding_method) const
-{
-	const static std::map<std::string_view, int> methods = {
-		{"GET", 0}, {"HEAD", 1}, {"POST", 2}, {"PUT", 3},  {"DELETE", 4}, 
-		{"CONNECT", 5}, {"TRACE", 6}, {"OPTIONS", 7}, {"PATCH", 8}
-	};
+// int Server::CombMethod(std::string_view finding_method) const
+// {
+// 	const static std::map<std::string_view, int> methods = {
+// 		{"GET", 0}, {"HEAD", 1}, {"POST", 2}, {"PUT", 3},  {"DELETE", 4}, 
+// 		{"CONNECT", 5}, {"TRACE", 6}, {"OPTIONS", 7}, {"PATCH", 8}
+// 	};
 
-	const auto methd_n_code = methods.find(finding_method);
+// 	const auto methd_n_code = methods.find(finding_method);
 
-	return methd_n_code != methods.cend() ? methd_n_code->second : -1;
-}
+// 	return methd_n_code != methods.cend() ? methd_n_code->second : -1;
+// }
 
 MHD_Result Server::SendInternalErrResponse(MHD_Connection* connection)
 {
@@ -315,9 +315,8 @@ MHD_Result Server::StopServer(bool easy)
  * static function 
  * */
 void Server::CompletedConnectionCallback(void* server_this, MHD_Connection* conn, 
-		void** con_cls, MHD_RequestTerminationCode toe)
+	void** con_cls, MHD_RequestTerminationCode toe)
 {
-	typedef std::pair<Resource*, void**> BoundRes_t;
 
 // MHD_REQUEST_TERMINATED_COMPLETED_OK:
 // 	We finished sending the response.
@@ -338,7 +337,7 @@ void Server::CompletedConnectionCallback(void* server_this, MHD_Connection* conn
 		return ;
 	}
 
-	*con_cls = nullptr;
+	reinterpret_cast<Resource*>(*con_cls)->configured = false;
 };
 
 
@@ -348,40 +347,80 @@ MHD_Result Server::ReplyToConnection(
 					const char *version, const char *upload_data,
 					size_t *upload_data_size, void **con_cls)
 {
-	std::ignore = con_cls;
+	// std::ignore = con_cls;
 	std::ignore = version;
 
 	Server* backvalue_server = 
 		reinterpret_cast<Server*>(cls);
 
 	// dont need to check method
-	int method_number = backvalue_server->CombMethod(method);
 
-	Resource* found_resource = backvalue_server->FindResource(method_number, url);
+	Resource* found_resource = reinterpret_cast<Resource*>(*con_cls);
 
-	if (found_resource == nullptr)
+	if (!found_resource) // then found
 	{
-#ifdef DEBUG
-		std::cerr << method << " " << url << ": resource not found!\n";
-#endif /* DEBUG */
-		return backvalue_server->SendNotFoundResponse(connection);
-	}
+		std::string uri_wo_params = UrlUtils::EraseQueryParams(url);
+		Resource* found_resource = backvalue_server->FindResource(uri_wo_params);
 
-	if (found_resource->method != method_number)
-	{
-		return backvalue_server->SendMethodNotAllowedResponse(connection);
-	}
+		if (!found_resource)
+		{
+	#ifdef DEBUG
+			std::cerr << method << " " << uri_wo_params << ": resource not found!\n";
+	#endif /* DEBUG */
+			return backvalue_server->SendNotFoundResponse(connection);
+		}
 
-	if (!found_resource->configured)
-	{
-		MHD_Result required_passed = found_resource->Required(connection);
+		// required by user
+		MHD_Result required_passed = found_resource->Required(connection, 
+			url, method);
 
+		*con_cls = reinterpret_cast<void*>(found_resource);
+		
 		return required_passed;
 	}
 
-	return found_resource->operator()(connection,
-		upload_data, 
-		upload_data_size);
+	// url can contains params and query string not formatted
+	// ParseUrl(url); // later
+
+	std::tuple<Resource*, MHD_Connection*, const char*, const char*, size_t> 
+		response_param_pack = std::make_tuple(found_resource, connection, url, upload_data, *upload_data_size);
+
+	MHD_Result process_connection_ret;
+
+	if (strcmp(method, MHD_HTTP_METHOD_GET) == 0)
+	{
+		process_connection_ret = found_resource->DoGET(connection, url); // and struct With query params
+	} else if (strcmp(method, MHD_HTTP_METHOD_POST) == 0)
+	{
+		std::apply(&Server::Resource::DoPOST, response_param_pack);
+	} else if (strcmp(method, MHD_HTTP_METHOD_HEAD) == 0)
+	{
+	// 	std::apply(found_resource->DoHEAD, response_param_pack);
+	// } else if (strcmp(method, MHD_HTTP_METHOD_PUT) == 0)
+	// {
+	// 	std::apply(found_resource->DoPUT, response_param_pack);
+	// } else if (strcmp(method, MHD_HTTP_METHOD_DELETE) == 0)
+	// {
+	// 	std::apply(found_resource->DoDELETE, response_param_pack);
+	// } else if (strcmp(method, MHD_HTTP_METHOD_CONNECT) == 0)
+	// {
+	// 	std::apply(found_resource->DoCONNECT, response_param_pack);
+	// } else if (strcmp(method, MHD_HTTP_METHOD_OPTIONS) == 0)
+	// {
+	// 	std::apply(found_resource->DoOPTIONS, response_param_pack);
+	// } else if (strcmp(method, MHD_HTTP_METHOD_TRACE) == 0)
+	// {
+	// 	std::apply(found_resource->DoTRACE, response_param_pack);
+	// } else if (strcmp(method, MHD_HTTP_METHOD_PATCH) == 0)
+	// {
+	// 	std::apply(found_resource->DoPATCH, response_param_pack);
+	} else {
+		return SendBadRequestResponse(connection);
+	}
+
+	*upload_data_size = 0;
+
+	return process_connection_ret;
 
 	// available methods
 	// if (strcmp(method, MHD_HTTP_METHOD_POST) != 0 && 
@@ -472,6 +511,8 @@ int Server::RegisterResource(Resource* res)
 
 	// resources.emplace_hint(hint, res);
 
+	// /home/pasha?day=evening&user=admin
+
 	m_router.AddRoute(res->url, res);
 
 	return 0;
@@ -556,7 +597,7 @@ int Server::RegisterResource(Resource* res)
 }*/
 
 // private or not
-Server::Resource* Server::FindResource(int method, const std::string& url)
+Server::Resource* Server::FindResource(const std::string& url)
 {
 	// Resource* temp = nullptr;
 	// // auto transparent_comp = resources.key_comp();
@@ -691,3 +732,11 @@ std::string_view Helper::dirname(std::string_view file_path)
     size_t pos_last_slash = file_path.rfind("/");
     return std::string_view(file_path.data(), pos_last_slash + 1);
 };
+
+char* Helper::strdupxx(std::string_view str)
+{
+	size_t str_len = str.length();
+	char* new_str = new char[str_len];
+	std::char_traits<char>::copy(new_str, str.data(), str_len + 1); // terminating zero
+	return new_str;
+}

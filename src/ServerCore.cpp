@@ -18,6 +18,8 @@ void ServerCore::stop(bool is_quiesce) noexcept
     {
       MHD_stop_daemon(working_process);
     }
+
+    std::get<DaemonPackage_size>(daemon) = false; // indicator
   }
 }
 

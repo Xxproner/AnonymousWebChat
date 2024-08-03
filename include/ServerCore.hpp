@@ -21,7 +21,7 @@ public:
 		, void* param1
 		, MHD_AccessHandlerCallback accessCallback
 		, void* param2
-		, Args&&... args) noexcept(false);
+		, Args... args) noexcept(false);
 
 	void stop(bool is_quiesce = false) noexcept;
 
@@ -60,7 +60,7 @@ template <typename... Args>
 		, void* param1
 		, MHD_AccessHandlerCallback accessCallback
 		, void* param2
-		, Args&&... args)
+		, Args... args)
 {
 	if (std::get<DaemonPackage_size>(daemon))
 		throw std::runtime_error("ServerCore::easy_start(): working proccess already launched!");
@@ -70,7 +70,7 @@ template <typename... Args>
 
 		working_process = MHD_start_daemon(exec_flags, port,
 										acceptCallback, param1,
-										accessCallback, param2, std::forward<Args>(args)...);
+										accessCallback, param2, args...);
 		if (working_process == NULL)
 			throw std::runtime_error("ServerCore::easy_start(): launch working process error!");
 		else 

@@ -4,19 +4,26 @@ Server::Server(
 		, uint16_t port
 		, MHD_AcceptPolicyCallback accessCallback
 		, void* param1
-		, Args&&... args)
+		, Args... args)
+	: m_router(new Resource("localhost"))
 {
-	exec_flags |=  MHD_USE_INTERNAL_POLLING_THREAD;
+	exec_flags = static_cast<MHD_FLAG>(
+		static_cast<int>(exec_flags) | MHD_USE_INTERNAL_POLLING_THREAD);
 
-	SaveConfiguration(exec_flags, port, accessCallback, param1, std::forward<Args>(args)..., 
-		MHD_OPTION_NOTIFY_COMPLETED, &CompletedConnectionCallback, MHD_OPTION_END);
+	SaveConfiguration(exec_flags, port, accessCallback, param1, 
+		&ReplyToConnection, reinterpret_cast<void*>(this), 
+		args..., 
+		MHD_OPTION_NOTIFY_COMPLETED, &CompletedConnectionCallback, nullptr,
+		MHD_OPTION_END);
 }
 
 template <typename... Args>
-void Server::SaveConfiguration(Args&&... args)
+void Server::SaveConfiguration(Args... args)
 {
-	ConfigurationCallback = [=](){
-		return server_core.easy_start(std::forward<Args>(args)...);
+	ConfigurationCallback = [this, args...]()
+	{
+		this->server_core.easy_start(args...);
+		return MHD_YES;
 	};
 }
 

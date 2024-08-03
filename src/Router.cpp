@@ -73,4 +73,20 @@
 
 		return true;
 	};
+
+
+
+	std::string UrlUtils::EraseQueryParams(
+		const std::string& url) noexcept
+	{
+		std::string copy_url = url;
+		std::size_t query_pm_spec_symbol_pos = copy_url.find('?');
+
+		if (query_pm_spec_symbol_pos != std::string::npos)
+		{
+			copy_url.erase(query_pm_spec_symbol_pos);
+		}
+
+		return copy_url; // RNVO
+	}
 // };

@@ -64,6 +64,8 @@ class Helper
 {
 public:
 	static std::string_view dirname(std::string_view file_path);
+
+	static char* strdupxx(std::string_view str);
 };
 
 
@@ -93,7 +95,7 @@ public:
 		, uint16_t port
 		, MHD_AcceptPolicyCallback acceptCallback
 		, void* param2
-		, Args&&... args);
+		, Args... args);
 
 	// const ServerCore& operator()() const { return server_core ; }
 	
@@ -104,7 +106,7 @@ public:
 
 	static typename std::remove_pointer_t<MHD_AccessHandlerCallback> ReplyToConnection;
 
-	int CombMethod(std::string_view) const;
+	// int CombMethod(std::string_view) const;
 
 	static constexpr const char* SIGNUP_PAGE = CONCAT(HTML_SRC_PATH, "/sign_up.html");
 	static constexpr const char* SIGNIN_PAGE = CONCAT(HTML_SRC_PATH, "/sign_in.html");
@@ -126,7 +128,7 @@ public:
 	MHD_Result StartServer(bool is_blocked = false);
 
 	template <typename... Args>
-	void SaveConfiguration(Args&&... args);
+	void SaveConfiguration(Args... args);
 
 	MHD_Result StopServer(bool easy = false); // easy or not
 
@@ -134,34 +136,59 @@ public:
 		std::string_view page, uint16_t http_status_code = MHD_HTTP_OK);
 
 	// only for syns webserver
-	struct RequestComplex
-	{
-		RequestComplex() = default;
+	// struct RequestComplex
+	// {
+	// 	RequestComplex() = default;
 
-		void Release();
+	// 	void Release();
 
-		~RequestComplex() = default;
+	// 	~RequestComplex() = default;
 
-		constexpr bool Filled() const { return is_filled; }
+	// 	constexpr bool Filled() const { return is_filled; }
 
-		bool is_filled = false;
-		size_t upload_data_size = 0;
-		std::string uri;
-		std::string upload_data;
-	};
+	// 	bool is_filled = false;
+	// 	size_t upload_data_size = 0;
+	// 	std::string uri;
+	// 	std::string upload_data;
+	// };
 
 	class Resource
 	{
 	public:
-		Resource(HTTP::http_methd_t _method, const char* url);
+		Resource(const char* _url);
 
-		virtual MHD_Result operator()(struct MHD_Connection* conn,
-			const char* upload_data,
-			size_t upload_data_size) = 0;
+		bool operator<(const Resource& that) const noexcept;
 
-		virtual bool operator<(const Resource& that) const noexcept final;
+		bool operator==(const Resource& that) const noexcept;
 
-		virtual bool operator==(const Resource& that) const noexcept final;
+		// GET method can not have body
+		// template <typename STRUCT_HAD_QUERY_PARAMS_FIELDS>
+		virtual MHD_Result DoGET( 
+			MHD_Connection* conn, const char* uri);
+
+		// virtual MHD_Result DoHEAD( 
+		// 	MHD_Connection* conn, const char* uri);
+
+		virtual MHD_Result DoPOST( 
+			MHD_Connection* conn, const char* uri, const char* upload_data, size_t upload_data_size);
+
+		// virtual MHD_Result DoPUT( 
+		// 	MHD_Connection* conn, const char* uri, const char* upload_data, size_t upload_data_size);
+
+		// virtual MHD_Result DoDELETE( 
+		// 	MHD_Connection* conn, const char* uri, const char* upload_data, size_t upload_data_size);
+
+		// virtual MHD_Result DoCONNECT( 
+		// 	MHD_Connection* conn, const char* uri, const char* upload_data, size_t upload_data_size);
+
+		// virtual MHD_Result DoOPTIONS( 
+		// 	MHD_Connection* conn, const char* uri, const char* upload_data, size_t upload_data_size);
+
+		// virtual MHD_Result DoTRACE( 
+		// 	MHD_Connection* conn, const char* uri, const char* upload_data, size_t upload_data_size);
+
+		// virtual MHD_Result DoPATCH( 
+		// 	MHD_Connection* conn, const char* uri, const char* upload_data, size_t upload_data_size);
 
 		/**
 		 * Required confiquration and 
@@ -169,13 +196,14 @@ public:
 		 * and user takes responsibility to answer 
 		 * if it failed! Return is_success
 		 * */
-		virtual MHD_Result Required(struct MHD_Connection*) const noexcept { return MHD_YES; };
+		virtual MHD_Result Required(
+			struct MHD_Connection* conn, const char* uri, const char* method) const noexcept 
+		{ return MHD_YES; };
 
 		virtual ~Resource() noexcept;
 
 	 	friend Server;
 	public:
-		const HTTP::http_methd_t method;
 		const char*           url;
 	private:
 		bool configured = false;
@@ -250,7 +278,7 @@ private:
 	};
 	*/
 
-	Resource* FindResource(int method, const std::string& url);
+	Resource* FindResource(const std::string& url);
 
 	// typedef std::multiset<std::unique_ptr<Resource>,
 	// 	ResourceComp> mResource;
@@ -292,7 +320,7 @@ private:
 
 	ServerCore server_core;
 
-	RequestComplex request_complex;
+	// RequestComplex request_complex;
 
 	std::function<MHD_Result()> ConfigurationCallback;
 
