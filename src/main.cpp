@@ -6,25 +6,31 @@
 
 #include <iostream>
 #include <string>
-#include <thread>
+// #include <thread>
 #include <algorithm>
 #include <functional>
 #include <cassert>
+#include <filesystem>
+#include <map>
+#include <system_error>
+#include <forward_list>
 
+namespace fs = std::filesystem;
+using namespace std::placeholders;
 
 #include "boost/lexical_cast.hpp"
 #include "boost/json/src.hpp"
+
+using boost::lexical_cast;
+using boost::bad_lexical_cast;
 
 #include "Server.hpp"
 #include "htmlUtils.hpp"
 #include "SessionList.hpp"
 #include "ServerDB.hpp"
 
-using boost::lexical_cast;
-using boost::bad_lexical_cast;
 using Resource = Server::Resource;
 
-using namespace std::placeholders;
 
 #if 1
 unsigned constexpr chash(char const *input) {
@@ -77,17 +83,25 @@ typedef uint16_t http_code_t ;
 
 */
 
-MHD_Result SendPage(
+MHD_Result SendFile(
 	struct MHD_Connection *connection, Session* session,
 	std::string_view page, enum MHD_ResponseMemoryMode MemoryMODE = MHD_RESPMEM_PERSISTENT);
 
-MHD_Result SendPage(
+/**
+ * send file
+ * */
+MHD_Result SendFile(
 	struct MHD_Connection *connection, uint16_t http_status_code,
 	std::string_view page, enum MHD_ResponseMemoryMode MemoryMODE = MHD_RESPMEM_PERSISTENT);
 
-std::string strDBError(int16_t code, http_code_t& http_code);
+std::string DBErrorStrInfo(int16_t code, http_code_t& http_code);
 
 MHD_Result SendStringContent(
+	MHD_Connection* connection,
+	const std::string& content, 
+	uint16_t http_status_code);
+
+MHD_Result SendStringAsHTML(
 	MHD_Connection* connection,
 	const std::string& content, 
 	uint16_t http_status_code);
@@ -97,379 +111,412 @@ MHD_Result SendHTMLContent(
 	const std::string& html_content, 
 	uint16_t http_status_code);
 
-class GetResource : public Server::Resource
+class CommonGetResource : public Server::Resource
 {
 public:
-	GetResource(const char* _url, const std::string& _filename)
+	CommonGetResource(const char* _url, const std::string& _filename)
 		: Resource(_url),
 		filename(_filename)
-	{};
+	{
+		assert (fs::exists(_filename) == true);
+	};
 
 	virtual MHD_Result DoGET(struct MHD_Connection* conn,
 		const char* url) override
 	{
-		return SendPage(conn, MHD_HTTP_OK, url);
+		return SendFile(conn, MHD_HTTP_OK, url);
 	};
 
-	virtual ~GetResource() noexcept{};
+	virtual ~CommonGetResource() noexcept{};
 
 private:
 	const std::string filename;
 };
 
-// class GeneralGetResource : public GetResource
-// {
-// public:
-// 	GeneralGetResource(int _method, const char* _url, std::string_view resource_path)
-// 		: GetResource(_method, _url)
-// 	{
-// 		struct stat file_buf;
-// 		int file_desc;
-// 		if( (file_desc = open(resource_path.data(), O_RDONLY)) != -1 &&
-// 			fstat(file_desc, &file_buf) == 0)
-// 		{
-// 			general_response = MHD_create_response_from_fd(file_buf.st_size, file_desc);
+class PostDataUtils
+{
+public:
 
-// 			if (general_response == NULL)
-// 			{
-// 				std::cerr << __FUNCTION__ << ":Failed to create response!";
-// 				close(file_desc);
-// 				assert(false);
-// 			}
+	static bool FilterCharacters(const char* c_str, size_t size)
+	{
+		while (size != 0)
+		{
+			--size;
+			if (!isalpha(c_str[size]) && !isdigit(c_str[size]) && 
+				 c_str[size] != ' ' && c_str[size] != '_')
+				return false;
+		}
+
+		return true;
+	};
+
+	// TODO: friend of my parent is my friend?
+	// friend RegistrationPostResource;
+
+	static bool IsParticipantCompleted(const Participant& member, std::string_view url)
+	{
+		return (url.compare("/sign_in.html") == 0 || url.compare("/sign_up.html") == 0 || url.compare("/") == 0) 
+			&& !member.name.empty() && !member.password.empty(); /* && member.info.empty() */
+
+	};
+private:
+}
+
+
+class MainResource : public Server::Resource 
+{
+public:
+
+	class request_category : public generic_category 
+	{
+		// nothing
+	};
+
+	MainResource(const char* _url, const std::string& _filename)
+		: Resource(_url)
+		, filename(_filename)
+	{
+		assert (fs::exists(_filename) == true);
+
+		MHD_Response* temp_redirect = MHD_create_response_from_buffer(0,
+			(void*)"", MHD_RESPMEM_MUST_COPY); 
+
+		assert(temp_redirect);
+		assert(MHD_add_response_header(response, MHD_HTTP_HEADER_LOCATION, "/login") == MHD_YES);
+
+		redirect_to_login_response.reset(temp_redirect);
+	};
+
+	MHD_Result DoGET(struct MHD_Connection* connection,
+		const char* url) override
+	{
+		if ((cookie = MHD_lookup_connection_value(
+			connection, MHD_HTTP_COOKIE_KIND, "Cookie")) != NULL)
+		{
+			auto found_session = session_list.FindSession(cookie);
+			if (!found_session || !found_session->verificate)  // invalid cookie
+			{
+				return 
+					MHD_queue_response(connection, 303, redirect_to_login_response.get());
+			}
+
+		} else 
+		{
+			return 
+				MHD_queue_response(connection, 303, redirect_to_login_response.get());
+		}
+
+		return SendFile(connection, MHD_HTTP_OK, filename);
+	};
+
+
+public:
+
+	~MainResource() noexcept{};
+
+private:
+	const std::string filename;
+	std::unique_ptr<MHD_Response, ResponseDestroyer> redirect_to_login_response;
+
+	// static server_db;
+	// static SessionList sessions;
+};
+
+/////////////////////////////========================///////////////
+
+class RegistrationResource : public Server::Resource 
+{
+public:
+
+	class request_category : public generic_category 
+	{
+		// nothing
+	};
+
+	RegistrationResource(const char* _url, const std::string& _filename)
+		: Resource(_url)
+		, filename(_filename)
+		, curr_session(nullptr)
+	{
+		assert (fs::exists(_filename) == true);
+
+		MHD_Response* temp_redirect = MHD_create_response_from_buffer(0,
+			(void*)"", MHD_RESPMEM_MUST_COPY); 
+
+		assert(temp_redirect);
+		assert(MHD_add_response_header(response, MHD_HTTP_HEADER_LOCATION, "/") == MHD_YES);
+
+		redirect_to_main_response.reset(temp_redirect);
+	};
+
+	MHD_Result DoGET(struct MHD_Connection* connection,
+		const char* url) override
+	{
+		return SendFile(connection, MHD_HTTP_OK, filename);
+	};
+
+private:
+	const std::string filename;
+
+public:
+	MHD_Result Required(MHD_Connection* conn, const char* uri, const char* method) override
+	{
+		if (strcmp(method, MHD_HTTP_METHOD_POST) == 0)
+		{
+			// clear resources
+			member.clear();
+			uniq_pp.reset(nullptr);
+
+			// get resources		
+			std::error_code pp_create_err;
+			CreatePostProcessor(conn, pp_create_err);
 			
-// 		}	 else 
-// 		{
-// 			std::cerr << __FUNCTION__;
-// 			perror(" error: Internal failed");
-// 			assert(false);
-// 		}
-// 	};
+			if (pp_create_err.value() != 0)
+			{
+				Server::SendBadRequestResponse(conn);
+				return MHD_NO;
+			}
+		}
 
-// 	MHD_Result operator()(void* cls, struct MHD_Connection* conn,
-// 			const char* upload_data,
-// 			size_t* upload_data_size, void** con_cls) override
-// 	{
-// 		return MHD_queue_response(conn, MHD_HTTP_OK, general_response);
-// 	};
+		return MHD_YES;
+	};
 
-// 	virtual ~GeneralGetResource() noexcept
-// 	{
-// 		if (general_response)
-// 			MHD_destroy_response(general_response);
-// 	}
 
-// private:
-// 	MHD_Response* general_response;
-// };
+	MHD_Result DoPOST(struct MHD_Connection* connection,
+		const char* url, const char* upload_data, size_t upload_data_size) override
+	{
+		if (upload_data_size > 0)
+		{
+			MHD_post_process(uniq_pp.get(), 
+				upload_data, upload_data_size);
 
-// class PostDataUtils
-// {
-// public:
+			return MHD_YES;
+		}
 
-// 	static bool FilterCharacters(const char* c_str, size_t size)
-// 	{
-// 		while (size != 0)
-// 		{
-// 			--size;
-// 			if (!isalpha(c_str[size]) && !isdigit(c_str[size]) && 
-// 				 c_str[size] != ' ' && c_str[size] != '_')
-// 				return false;
-// 		}
+		return HandlePostData(connection);
+	};
 
-// 		return true;
-// 	};
+	enum {
+		DISALLOW_PP_CONTENT_TYPE = 1,
+		MHD_INTERNAL_ERROR
+	};
 
-// 	// TODO: friend of my parent is my friend?
-// 	// friend RegistrationPostResource;
+	// and picture
+	static MHD_Result PostIterator(void *cls, enum MHD_ValueKind kind, 
+					const char *key, const char *filename, 
+					const char *content_type, const char *transfer_encoding, 
+					const char *data, uint64_t off, size_t size)
+	{
+		std::ignore = kind;
+		std::ignore = filename;
+		std::ignore = content_type;
+		std::ignore = transfer_encoding;
+		std::ignore = off;
 
-// 	static bool IsParticipantCompleted(const Participant& member, std::string_view url)
-// 	{
-// 		return (url.compare("/sign_in.html") == 0 || url.compare("/sign_up.html") == 0 || url.compare("/") == 0) 
-// 			&& !member.name.empty() && !member.password.empty(); /* && member.info.empty() */
+		if (size > 0)
+		{ // for now it is only @sign in@ option
+			if (!PostDataUtils::FilterCharacters(data, size))
+			{
+				return MHD_NO;
+			}
 
-// 	};
-// private:
-
-// };
-
-// // general post resource
-// // class PostResource : public Server::Resource
-// // {
-// // public:
-// // 	// typedef MHD_Result (PostDataHandler)(MHD_Connection*, Session*);
-// // 	typedef MHD_Result (PostDataHandler )(MHD_Connection*                     );
-// // 	typedef MHD_Result (PostDataIterator)(MHD_Connection*, const char*, size_t);
-
-// // 	PostResource(const char* _url, 
-// // 				PostDataIterator _process_post_data,
-// // 				PostDataHandler  _handle_post_data)
-// // 		: Resource(HTTP::POST, _url)
-// // 		, process_post_data(_process_post_data)
-// // 		, handle_post_data(_handle_post_data)
-// // 	{};
-
-// // 	virtual MHD_Result operator()(void* cls, struct MHD_Connection* connection,
-// // 				const char* upload_data,
-// // 				size_t* upload_data_size, void** con_cls) override
-// // 	{	
-// // 		if (*upload_data_size > 0)
-// // 		{
-// // 			process_post_data(connection, 
-// // 				upload_data, *upload_data_size);
-
-// // 			return MHD_YES;
-// // 		}
-
-// // 		// return handle_post_data(connection, session);
-// // 		return handle_post_data(connection);
-// // 	};
-
-// // private: // members
-// // 	std::function<PostDataIterator> process_post_data;
-// // 	std::function<PostDataHandler > handle_post_data;
-// // };
-
-// // for sign in and sign up
-// class RegistrationPostResource : public Server::Resource // PostResource
-// {
-// public:
-// 	// take for compability definitions first!
-// 	static serverDB db_server_interface;
-
-// public:
-// 	RegistrationPostResource(const char* _url)
-// 		: Resource(HTTP::POST, _url)
-// 	{};
-
-// 	MHD_Result HandlePostData(void* cls, MHD_Connection* connection, void** con_cls)
-// 	{
-// 		if (!PostDataUtils::IsParticipantCompleted(member, url))
-// 		{
-// 			// not completed data
-// 			Server::SendBadRequestResponse(connection);
-// 			return MHD_NO;
-// 		}
-
-// 		int db_exec_code = 0;
-// 		if (strcmp(url, "/") == 0 || strcmp(url, "/sign_in.html") == 0)
-// 		{
-// 			db_exec_code = db_server_interface.AccessParticipant(member);
-// 		} else // dont need to check url
-// 		{
-// 			db_exec_code = db_server_interface.AddParticipant(member);
-// 		}
-
-// 		// if we don't call queue_response 
-// 		// then microhttpd craches
-// 		if (db_exec_code != serverDB::DB_OK)
-// 		{
-// 			http_code_t http_code;
-// 			std::string db_bad_message = strDBError(db_exec_code, http_code);
-// 			return SendHTMLContent(connection, db_bad_message, http_code);
-// 		}
-
-// 		SendHTMLContent(connection, "YES!", MHD_HTTP_OK);
-// 		return MHD_YES;
-
-// 	};
-
-// 	virtual MHD_Result operator()(void* cls, struct MHD_Connection* connection,
-// 				const char* upload_data,
-// 				size_t* upload_data_size, void** con_cls) override
-// 	{	
-// 		if (*upload_data_size > 0)
-// 		{
-// 			MHD_post_process(reinterpret_cast<MHD_PostProcessor*>(*con_cls), 
-// 				upload_data, *upload_data_size);
-
-// 			*upload_data_size = 0; // ????
-
-// 			return MHD_YES;
-// 		}
-// #warning "Bad responsibility of upload_data!"
-
-// 		// return handle_post_data(connection, session);
-// 		return HandlePostData(cls, connection, con_cls);
-// 	};
-
-// 	static MHD_Result PostIterator(void *cls, enum MHD_ValueKind kind, 
-// 					const char *key, const char *filename, 
-// 					const char *content_type, const char *transfer_encoding, 
-// 					const char *data, uint64_t off, size_t size)
-// 	{
-// 		std::ignore = kind;
-// 		std::ignore = filename;
-// 		std::ignore = content_type;
-// 		std::ignore = transfer_encoding;
-// 		std::ignore = off;
-
-// 		if (size > 0)
-// 		{ // for now it is only @sign in@ option
-// 			if (!PostDataUtils::FilterCharacters(data, size))
-// 			{
-// 				return MHD_NO;
-// 			}
-
-// 			RegistrationPostResource* res = 
-// 				reinterpret_cast<RegistrationPostResource*>(cls);
+			RegistrationResource* res = 
+				reinterpret_cast<RegistrationResource*>(cls);
 			
-// 			Participant& member = res->member;
+			Participant& member = res->member;
 			
-// 			SWITCH(key)
-// 			{
-// 				CASE("name"):
-// 				{
-// 					member.name.append(data);
-// 					break;
-// 				}
-// 				CASE("password"):
-// 				{
-// 					member.password.append(data);
-// 					break;
-// 				}
-// 				CASE("info"):
-// 				{
-// 					member.info.append(data);
-// 					break;
-// 				}
-// 				DEFAULT:
-// 				{
-// 					return MHD_NO;
-// 				}
-// 			}
-// 		}
+			SWITCH(key)
+			{
+				CASE("name"):
+				{
+					member.name.append(data);
+					break;
+				}
+				CASE("password"):
+				{
+					member.password.append(data);
+					break;
+				}
+				CASE("info"):
+				{
+					member.info.append(data);
+					break;
+				}
+				DEFAULT:
+				{
+					return MHD_NO;
+				}
+			}
+		}
 
-// 		return MHD_YES;
-// 	};
+		return MHD_YES;
+	};
 
-// 	// configuration for first connection
-// 	// imitation of ctor
-// 	MHD_Result Configure(MHD_Connection* conn, void** con_cls) override
-// 	{
-// 		// clear resources
-// 		member.clear();
-// 		uniq_pp.reset(nullptr);
+	MHD_Result HandlePostData(MHD_Connection* connection)
+	{
+		if (!PostDataUtils::IsParticipantCompleted(member, url))
+		{
+			// not completed data
+			Server::SendBadRequestResponse(connection);
+			return MHD_NO;
+		}
 
-// 		// get resources		
-// 		auto temp = CreatePostProcessor(conn);
-// 		if (!temp)
-// 		{
-// 			Server::SendBadRequestResponse(conn);
-// 			return MHD_NO;
-// 		}
+		int db_exec_code = 0;
+		if (strcmp(url, "/login") == 0)
+		{
+			db_exec_code = server_db.AccessParticipant(member);
+		} else if (strcmp(url, "/registration") == 0)
+		{
+			db_exec_code = server_db.AddParticipant(member);
+		}
 
-// 		uniq_pp.reset(temp);
+		// if we don't call queue_response 
+		// then microhttpd craches
+		if (db_exec_code != serverDB::DB_OK)
+		{
+			http_code_t http_response_code = 400;
+			std::string db_bad_message = DBErrorStrInfo(db_exec_code);
+			return SendContentAsHTML(connection, db_bad_message, http_code);
+		}
 
-// 		*con_cls = uniq_pp.get();
+		Session* new_session = new Session();
 
-// 		return MHD_YES;
-// 	}
+		new_session.CreateSessionCookie(std::chrono::hours{1});
 
-// 	// termination connection
-// 	// imitation of dtor
-// 	void Release(void** con_cls) override
-// 	{
-// 		std::ignore = con_cls;
+		session_list.AddSession(new_session);
 
-// 		uniq_pp.reset(nullptr);
-// 	}
+		MHD_Response* all_ok_response 
+			= MHD_create_response_from_buffer(0, (void*)"", MHD_RESPMEM_MUST_COPY);
 
-// 	class PostProcessorDestroyer
-// 	{
-// 	public:
-// 		auto operator()(MHD_PostProcessor* pp) const noexcept
-// 			-> decltype(MHD_destroy_post_processor(pp)) 
-// 		{
-// 			if (pp)
-// 			{
-// 				return MHD_destroy_post_processor(pp);
-// 			}
+		// we can use put method
+		char cookie_str[129];
 
-// 			return MHD_YES;
-// 		};
-// 	};
-// private: // methods
-// 	MHD_PostProcessor* CreatePostProcessor(MHD_Connection* conn) // const
-// 	{	
-// 		const char* content_type = MHD_lookup_connection_value(conn, MHD_HEADER_KIND,
-// 			"Content-Type");
+		std::string expired_http_date = curr_session.ExpiredTimeToHTTPDate();
 
-// 		// what associative of || operator --> or <--
-// 		if (!content_type || !AvailableContentType(content_type))
-// 		{
-// 			SendStringContent(conn, 
-// 				"Instance of content-type header not allowed!", MHD_HTTP_BAD_REQUEST);
-// 			return nullptr;
-// 		}
+		snprintf(cookie_str, 129, "sessionid=%s; Expires= %s; Path=/", new_session->sid, expired_http_date.c_str());
+		MHD_add_response_header(all_ok_response, MHD_HTTP_HEADER_SET_COOKIE, cookie_str);
+		MHD_add_response_header(all_ok_response, MHD_HTTP_HEADER_LOCATION, "/");
 
-// 		MHD_PostProcessor* temp_pp = MHD_create_post_processor(
-// 			conn, kPostBufferSize, 
-// 			&RegistrationPostResource::PostIterator, 
-// 			reinterpret_cast<void*>(this));
-// 		if (!temp_pp)
-// 		{
-// 			Server::SendInternalErrResponse(conn);
-// 			return nullptr;
-// 		}
+		MHD_Result lazy_ret = MHD_queue_response(connection, 303, response);
+		if (lazy_ret == MHD_NO)
+		{
+			std::cerr << "MHD_queue_response(): MHD internal error!" << 
+				__FILE__ << " " << __LINE__;
+		}
 
-// 		return temp_pp;
-// 	}
+		MHD_destroy_response(response);
 
+		return lazy_ret;
 
-// 	inline bool AvailableContentType(std::string_view content_type) const 
-// 	{
-// 		// this values are passed by MHD
-// 		return (content_type.compare(MHD_HTTP_POST_ENCODING_FORM_URLENCODED) == 0) ||
-// 			(content_type.compare(MHD_HTTP_POST_ENCODING_MULTIPART_FORMDATA) == 0);
-// 	}
+	};
 
-// private: // members
-// 	static const size_t kPostBufferSize = 512;
-// 	Participant member;
-// 	std::unique_ptr<MHD_PostProcessor, PostProcessorDestroyer> uniq_pp;
+	class PostProcessorDestroyer
+	{
+	public:
+		auto operator()(MHD_PostProcessor* pp) const noexcept
+			-> decltype(MHD_destroy_post_processor(pp)) 
+		{
+			if (pp)
+			{
+				return MHD_destroy_post_processor(pp);
+			}
 
-// 	// Session* session;
-// 	// static SessionsList session_list;
-// };
+			return MHD_YES;
+		};
+	};
 
-// serverDB RegistrationPostResource::db_server_interface;
-// serverDB RegistrationPostResource::db_connector.open(DB_PATH); // ??
+	class ResponseDestroyer
+	{
+	public:
+		auto operator()(MHD_Response* response) const noexcept
+			-> decltype(MHD_destroy_response(response))
+		{
+			if (response)
+			{
+				return MHD_destroy_response(response);
+			}
+
+			return MHD_YES;
+		}
+	};
+
+private: // methods
+	inline bool AvailableContentType(std::string_view content_type) const 
+	{
+		// this values are passed by MHD
+		return (content_type.compare(MHD_HTTP_POST_ENCODING_FORM_URLENCODED) == 0) ||
+			(content_type.compare(MHD_HTTP_POST_ENCODING_MULTIPART_FORMDATA) == 0);
+	}
+
+	void CreatePostProcessor(MHD_Connection* conn, std::error_code& err_code) // const
+	{	
+		const char* content_type = MHD_lookup_connection_value(conn, MHD_HEADER_KIND,
+			"Content-Type");
+
+		// what associative of || operator --> or <--
+		if (!content_type && AvailableContentType(content_type))
+		{
+			err_code.assign(DISALLOW_PP_CONTENT_TYPE, request_category);
+			return;
+		}
+
+		MHD_PostProcessor* temp_pp = MHD_create_post_processor(
+			conn, kPostBufferSize, 
+			&RegistrationPostResource::PostIterator, 
+			reinterpret_cast<void*>(this));
+		
+		if (!temp_pp)
+		{
+			err_code.assign(MHD_INTERNAL_ERROR, request_category);
+			return ;
+		}
+
+		uniq_pp.reset(temp_pp);
+
+		return; 
+	}
+
+	~CommonGetResource() noexcept{};
+
+private: // members
+	Participant member;
+	std::unique_ptr<MHD_PostProcessor, PostProcessorDestroyer> uniq_pp;
+	Session* curr_session;
+
+	std::unique_ptr<MHD_Response, ResponseDestroyer> redirect_to_main_response;
+
+	static server_db;
+	static SessionList sessions;
+};
 
 int main()
 {
-	// needed for registration html page
-
-	// needed to registration static directory where browser to find 
-	// images, links and etc
-	// assert(RegistrationPostResource::db_server_interface.open(DB_PATH) == serverDB::DB_OK && "DB conf error!");
-
 	std::locale loc("en_US.UTF-8");
 	std::locale::global(loc);
+	
+	assert(RegistrationPostResource::server_db.open(DB_PATH) == serverDB::DB_OK && "DB open error!");
 
-	srand(time(NULL));
 	const uint16_t WEBSERVERPORT = 8888;
-
 	Server registration_server(MHD_USE_DEBUG, 
 							 WEBSERVERPORT, nullptr, nullptr,
 							 MHD_OPTION_CONNECTION_TIMEOUT, 15u); // start daemon
 
-	// Resource* main_html_page = new GeneralGetResource(HTTP::GET, "/", "../html_src/sign_in.html");
-	// assert(registration_server.RegisterResource(main_html_page) == 0 && "Registration error!");
+	// Resource* main_page = new MainResource("/", "../html_src/index.html")
+	// assert(registration_server.RegisterResource(main_page) == 0 && "Registration error!");
 
+	Resource* login_html_page = new CommonGetResource("/login", "../html_src/sign_in.html");
+	assert(registration_server.RegisterResource(login_html_page) == 0 && "Registration error!");
 
-	Resource* reg_page = new GetResource("/sign_up.html", "../html_src/sign_up.html");
+	Resource* reg_page = new CommonGetResource("/registration", "../html_src/sign_up.html");
 	assert(registration_server.RegisterResource(reg_page) == 0 && "Registration error!");
 
-	// Resource* favicon_ico = new GeneralGetResource(HTTP::GET, "/static/favicon.ico", "../html_src/static/favicon.ico");
+	// register static folder
+	// const char* static_folder_path = "../html_src/static/";
+	// assert(RegisterStaticFolder(static_folder_path) == 0);
+	// Resource* favicon_ico = new CommonGetResource("/static/favicon.ico", "../html_src/static/favicon.ico");
 	// assert(registration_server.RegisterResource(favicon_ico) == 0 && "Registration error!");
 	
-
-	// alternative and more comfortable way to register html
-	// Resource* access_member_post_data_resource = new RegistrationPostResource("/sign_in.html");
-	// access_member_post_data_resource->setConfigurationPolicy(
-	// 	std::bind(&RegistrationPostResource::CreatePostProcessor, access_member_post_data_resource, _1, _2),
-	// 	std::bind(&RegistrationPostResource::DestroyPostProcessor, access_member_post_data_resource, _1));
-	// assert(registration_server.RegisterResource(access_member_post_data_resource) == 0);
+	// register one resource to pack of pathes
 
 	bool is_blocked;
 	registration_server.StartServer(is_blocked = false);
@@ -483,27 +530,7 @@ int main()
 	registration_server.StopServer(false);
 
 	return 0;
-}
-
-// void AddHeaderCookie (Session *session,
-// 					struct MHD_Response *response)
-// {
-// 	char cstr[256];
-// 	snprintf (cstr,
-// 				sizeof (cstr),
-// 				"%s=%s",
-// 				"Cookie",
-// 				session->sid);
-// 	if (MHD_NO ==
-// 			MHD_add_response_header (response,
-// 								 MHD_HTTP_HEADER_SET_COOKIE,
-// 								 cstr))
-// 	{
-// 		std::cerr << 
-// 			"Server::AddHeaderCookie(): Failed to set session cookie header!\n";
-// 	}
-// }
-	
+}	
 
 static int strcmptail(std::string_view str, std::string_view footer)
 {
@@ -521,23 +548,37 @@ static int strcmphead(std::string_view str, std::string_view head)
 }
 
 
-enum MHD_Result SendPage(
+enum MHD_Result SendFile(
 	struct MHD_Connection *connection, Session* session,
 	std::string_view page, enum MHD_ResponseMemoryMode MemoryMODE)
 {
-	return SendPage(connection, session->status_code, 
+	return SendFile(connection, session->status_code, 
 		page, MemoryMODE);
 }
 
-/**
- * SendPage function excepts symbol `/' 
- * and file basename
- * 
- * */
-enum MHD_Result SendPage(
+namespace hidden 
+{
+
+	struct c_strComparer
+	{
+		bool operator()(const char* lhs, const char* rhs) const noexcept 
+		{
+			return std::char_traits<char>::compare(lhs, rhs, 
+				std::char_traits<char>::length(lhs)) < 0;
+		};
+	};
+
+}; // namespace hidder
+
+enum MHD_Result SendFile(
 	struct MHD_Connection *connection, uint16_t http_status_code,
 	std::string_view page, enum MHD_ResponseMemoryMode MemoryMODE)
 {
+	static std::map<const char*, const char*, hidden::c_strComparer> mContentType = {
+		{".jpg" , "image/jpeg"}, {".ico", "image/x-icon"	},
+		{".html", "text/html" }, {".js" , "text/javascript"	}
+	};
+
 	enum MHD_Result ret;
 	struct MHD_Response *response;
 
@@ -554,6 +595,20 @@ enum MHD_Result SendPage(
 			page_name.append(page);
 		}
 
+		const char* content_type;
+
+		// get content type
+		std::string path_extension = fs::path(page_name).extension().string();
+		auto mime_type = mContentType.find(path_extension.c_str());
+		if (mime_type == mContentType.cend())
+		{
+			std::cerr << "Unknown path extension (" << path_extension << ")!\n";
+			content_type = "text/plain";
+		} else 
+		{
+			content_type = mime_type->second;
+		}
+
 		struct stat file_buf;
 		int file_desc;
 		if( (file_desc = open(page_name.c_str(), O_RDONLY)) != -1 &&
@@ -563,11 +618,12 @@ enum MHD_Result SendPage(
 
 			if (response == NULL)
 			{
-				std::cerr << "SendPage(): Failed to create response!";
+				std::cerr << "SendFile(): Failed to create response!";
 				close(file_desc);
 				return MHD_NO;
 			}
 
+			MHD_add_response_header(response, MHD_HTTP_HEADER_CONTENT_TYPE, content_type);
 		} else 
 		{ 
 			if (errno == ENOENT) // no such file or directory
@@ -578,7 +634,7 @@ enum MHD_Result SendPage(
 
 				if (response == NULL)
 				{
-					std::cerr << "SendPage(): Failed to create response!";
+					std::cerr << "SendFile(): Failed to create response!";
 					return MHD_NO;
 				}
 
@@ -586,37 +642,26 @@ enum MHD_Result SendPage(
 
 			} else 
 			{
+				perror("SendFile(): Internal error");
 
-				perror("SendPage(): Internal error");
-
-				response = MHD_create_response_from_buffer(strlen(Server::ERROR_PAGE),
-					(void*) Server::ERROR_PAGE, MHD_RESPMEM_PERSISTENT);
-
-				if (response == NULL)
-				{
-					std::cerr << "SendPage(): Failed to create response!";
-					return MHD_NO;
-				}
-
-				http_status_code = MHD_HTTP_INTERNAL_SERVER_ERROR;
-
+				return Server::SendInternalErrResponse(connection);
 			}
 		}
-	} else // need to delete for responsibility
-	{
-		response =
-			MHD_create_response_from_buffer ( page.length(), 
-											(void *)page.data(),
-											MemoryMODE); // be careful with the MemoryMODE
-		if (response == NULL)
-		{
-			std::cerr << "SendPage(): Failed to create response!";
-			return MHD_NO;
-		}	
-			
-	}
 
-	// AddHeaderCookie(session, response);
+	}
+	// } else // need to delete for responsibility
+	// {
+	// 	response =
+	// 		MHD_create_response_from_buffer (page.length(), 
+	// 										(void*)page.data(),
+	// 										 MemoryMODE); // be careful with the MemoryMODE
+	// 	if (response == NULL)
+	// 	{
+	// 		std::cerr << "SendFile(): Failed to create response!";
+	// 		return MHD_NO;
+	// 	}	
+			
+	// }
 
 	ret = MHD_queue_response (connection, http_status_code, response);
 
@@ -631,12 +676,35 @@ MHD_Result SendStringContent(
 	const std::string& content, 
 	uint16_t http_status_code)
 {
-	std::string html_wrapper = "<html><body></body></html>";
-	const size_t insert_pos = 12ul;
+	MHD_Response* response = 
+		MHD_create_response_from_buffer(content.length(),
+										(void*)content.data(),
+										MHD_RESPMEM_MUST_COPY);
+	if (!response)
+	{
+		// create response error
+		return MHD_NO;
+	}
 
-	html_wrapper.insert(insert_pos, content);
+	MHD_add_response_header(response, MHD_HTTP_HEADER_CONTENT_TYPE, "text/plain");
 
-	return SendHTMLContent(connection, html_wrapper, http_status_code);
+	MHD_Result ret = MHD_queue_response(connection, http_status_code, response);
+
+	MHD_destroy_response(response);
+
+	return ret;
+}
+
+MHD_Result SendStringAsHTML(
+	MHD_Connection* connection,
+	const std::string& content,
+	uint16_t http_status_code)
+{
+	std::string html_content = "<html><body>?</html></body>";
+	size_t insert_pos = html_content.find('?');
+	html_content.replace(insert_pos, 1, content);
+
+	return SendHTMLContent(connection, html_content, http_status_code);
 }
 
 MHD_Result SendHTMLContent(
@@ -654,6 +722,8 @@ MHD_Result SendHTMLContent(
 		return MHD_NO;
 	}
 
+	MHD_add_response_header(response, MHD_HTTP_HEADER_CONTENT_TYPE, "text/html");
+
 	MHD_Result ret = MHD_queue_response(connection, http_status_code, response);
 
 	MHD_destroy_response(response);
@@ -663,7 +733,7 @@ MHD_Result SendHTMLContent(
 
 // ========================= DB ===================================
 
-std::string strDBError(int16_t code, http_code_t& http_code)
+std::string DBErrorStrInfo(int16_t code, http_code_t& http_code)
 {
     std::string message ;
     switch(code)
@@ -754,13 +824,13 @@ std::string strDBError(int16_t code, http_code_t& http_code)
 // 				{"key-word", session->chat_member.key_word_.c_str()}});
 // 		if (filename_n_file.first.empty())
 // 		{
-// 			return SendPage(connection, session, Server::ERROR_PAGE, MHD_RESPMEM_PERSISTENT);	
+// 			return SendFile(connection, session, Server::ERROR_PAGE, MHD_RESPMEM_PERSISTENT);	
 // 		}
 
 // 		HTML::AddJSAlert(filename_n_file.second, "Wrong input data!");
 // 		filename_n_file.second.close();
 
-// 		return SendPage(connection, session, ShiftPointertoBasename(filename_n_file.first.c_str()), MHD_RESPMEM_MUST_COPY);
+// 		return SendFile(connection, session, ShiftPointertoBasename(filename_n_file.first.c_str()), MHD_RESPMEM_MUST_COPY);
 // 	}
 
 // 	int db_code_exec = back_server->partpants_list.AccessParticipant(con_info->session->chat_member);
@@ -776,9 +846,9 @@ std::string strDBError(int16_t code, http_code_t& http_code)
 // 	size_t hash_from_name = std::hash<std::string>()(con_info->session->chat_member.name_);
 // 	std::string hash_str_reprez = std::to_string(hash_from_name);
 // 	hash_str_reprez.append(".html");
-// 	SendPage(connection, session, hash_str_reprez.c_str(), MHD_RESPMEM_PERSISTENT);
+// 	SendFile(connection, session, hash_str_reprez.c_str(), MHD_RESPMEM_PERSISTENT);
 
-// 	// SendPage(connection, session, Server::SUCCESS_PAGE, MHD_RESPMEM_PERSISTENT);
+// 	// SendFile(connection, session, Server::SUCCESS_PAGE, MHD_RESPMEM_PERSISTENT);
 
 // }
 
@@ -794,13 +864,13 @@ std::string strDBError(int16_t code, http_code_t& http_code)
 // 				{"key-word", session->chat_member.key_word_.c_str()}});
 // 		if (filename_n_file.first.empty())
 // 		{
-// 			return SendPage(connection, session, Server::ERROR_PAGE, MHD_RESPMEM_PERSISTENT);	
+// 			return SendFile(connection, session, Server::ERROR_PAGE, MHD_RESPMEM_PERSISTENT);	
 // 		}
 
 // 		HTML::AddJSAlert(filename_n_file.second, "Wrong input data!");
 // 		filename_n_file.second.close();
 
-// 		return SendPage(connection, session, ShiftPointertoBasename(filename_n_file.first.c_str()), MHD_RESPMEM_MUST_COPY);
+// 		return SendFile(connection, session, ShiftPointertoBasename(filename_n_file.first.c_str()), MHD_RESPMEM_MUST_COPY);
 // 	}
 
 // 	int db_code_exec = back_server->partpants_list.AccessParticipant(con_info->session->chat_member);
@@ -816,9 +886,9 @@ std::string strDBError(int16_t code, http_code_t& http_code)
 // 	size_t hash_from_name = std::hash<std::string>()(con_info->session->chat_member.name_);
 // 	std::string hash_str_reprez = std::to_string(hash_from_name);
 // 	hash_str_reprez.append(".html");
-// 	SendPage(connection, session, hash_str_reprez.c_str(), MHD_RESPMEM_PERSISTENT);
+// 	SendFile(connection, session, hash_str_reprez.c_str(), MHD_RESPMEM_PERSISTENT);
 
-// 	// SendPage(connection, session, Server::SUCCESS_PAGE, MHD_RESPMEM_PERSISTENT);
+// 	// SendFile(connection, session, Server::SUCCESS_PAGE, MHD_RESPMEM_PERSISTENT);
 
 // }
 
