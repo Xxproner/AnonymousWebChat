@@ -1,9 +1,11 @@
 #include "SessionList.hpp"
 
 #include <string.h>
+#include <time.h>
 
 #include <algorithm>
 #include <iostream>
+#include <map>
 
 // =========================================================
 Session::Session()
@@ -41,37 +43,27 @@ void Session::CreateSessionCookie(const std::chrono::time_point<std::chrono::ste
 }
 
 // =========================================================
-template <typename Rep>
-void Session::CreateSessionCookie(const std::chrono::duration<Rep>& expired_duration) noexcept
-// =========================================================
-{
-	m_cookie_created_time 		= std::chrono::steady_clock::now();
-	m_cookie_expired_duration 	= expired_duration;
-	m_cookie_expired_time 		= m_cookie_created_time + m_cookie_expired_duration;
-
-	if (m_cookie_expired_time < m_cookie_created_time)
-	{
-		std::cerr << "Expired cookie dutaion is negative!\n";
-	}
-
-	snprintf(sid, 33, 
-		"%X%X%X%X", rand(), rand(), rand(), rand());
-}
-
-// =========================================================
 std::string Session::ExpiredTimeToHTTPDate() const noexcept
 // =========================================================
 {
 	// c++17 solution or via api
-	std::time_t expired_time = 
-		std::chrono::system_clock::to_time_t(std::chrono::system_clock::now() + m_cookie_expired_duration);
+	/*const*/ static std::map<int, const char*> week_day = {
+		{1, "Mon"}, {2, "Tue"}, {3, "Wed"},
+		{4, "Tue"}, {5, "Fri"}, {6, "Sat"}, 
+		{0, "Sun"}
+	};
 
+	std::time_t expired_time = 
+		std::chrono::system_clock::to_time_t(std::chrono::system_clock::now() + m_cookie_expired_duration + 3h); // MSK GMT + 3
+
+	// not thread-safe
 	std::tm* expired_time_repres = localtime(&expired_time);	
-	std::string http_date; http_date.resize(32);
+	std::string http_date = week_day[expired_time_repres->tm_wday]; http_date.resize(1 << 5);
 
 	// Date: <day-name>, <day> <month> <year> <hour>:<minute>:<second> GMT
-	strftime(http_date.data(), 32, "GET DAY OF WEEK VIA  %d %m %Y %H:%M:%S GMT", expired_time_repres);
+	strftime(http_date.data() + 3, 1 << 5, ", %m %Y %H:%M:%S GMT", expired_time_repres);
 
+	return http_date;
 }
 
 // =========================================================

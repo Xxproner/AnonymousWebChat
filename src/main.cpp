@@ -44,49 +44,12 @@ unsigned constexpr chash(char const *input) {
 #	define DEFAULT default
 #endif
 
-typedef uint16_t http_code_t ;
+typedef uint16_t http_code_t;
 
-// template <typename TLiteral>
-// struct Timer
-// {
-// 	using clock = std::chrono::system_clock;
-// private:
-// 	std::chrono::time_point<clock> start_;
-// 	TLiteral duration_;
-// public:
-// 	Timer(TLiteral duration) : 
-// 		start_(std::chrono::system_clock::now()), duration_(duration) { }
-// 	bool is_time_off() const noexcept
-// 	{
-// 		std::chrono::time_point<clock> now = 
-// 			std::chrono::system_clock::now();
-// 		return (start_ + duration_) > now;
-// 	}
-
-// 	~Timer() = default;
-// };
-
-
-// void AddHeaderCookie (Session* session,
-// 					struct MHD_Response* response);
-
-/*
-	// ============= chat configuration ==========
-	constexpr static size_t POSTBUFFERSIZE = 512;
-	constexpr static size_t MAXNAMESIZE = 30;
-	constexpr static size_t MAXANSWERSIZE = 512;
-	constexpr static size_t MAXMEMBERSNUMBER = 10;
-	constexpr static size_t MAXACTIVEMEMBERS = 5; 
-
-	// ===========================================
-
-
-*/
 
 MHD_Result SendFile(
 	struct MHD_Connection *connection, Session* session,
 	std::string_view page, enum MHD_ResponseMemoryMode MemoryMODE = MHD_RESPMEM_PERSISTENT);
-
 /**
  * send file
  * */
@@ -110,6 +73,48 @@ MHD_Result SendHTMLContent(
 	MHD_Connection* connection,
 	const std::string& html_content, 
 	uint16_t http_status_code);
+
+namespace hidden 
+{
+
+	struct c_strComparer
+	{
+		bool operator()(const char* lhs, const char* rhs) const noexcept 
+		{
+			return std::char_traits<char>::compare(lhs, rhs, 
+				std::char_traits<char>::length(lhs)) < 0;
+		};
+	};
+
+	class PostProcessorDestroyer
+	{
+	public:
+		auto operator()(MHD_PostProcessor* pp) const noexcept
+			-> decltype(MHD_destroy_post_processor(pp)) 
+		{
+			if (pp)
+			{
+				return MHD_destroy_post_processor(pp);
+			}
+
+			return MHD_YES;
+		};
+	};
+
+	class ResponseDestroyer
+	{
+	public:
+		void operator()(MHD_Response* response) const noexcept
+		{
+			if (response)
+			{
+				MHD_destroy_response(response);
+			}
+		}
+	};
+
+}; // namespace hidder
+
 
 class CommonGetResource : public Server::Resource
 {
@@ -150,17 +155,47 @@ public:
 		return true;
 	};
 
-	// TODO: friend of my parent is my friend?
-	// friend RegistrationPostResource;
-
 	static bool IsParticipantCompleted(const Participant& member, std::string_view url)
 	{
 		return (url.compare("/sign_in.html") == 0 || url.compare("/sign_up.html") == 0 || url.compare("/") == 0) 
 			&& !member.name.empty() && !member.password.empty(); /* && member.info.empty() */
 
 	};
+
+	static std::string_view FindCookieValuebyName(std::string_view cookies, std::string_view name)
+	{
+		size_t pos = cookies.find(name);
+
+		if (pos == std::string_view::npos)
+		{
+			return {cookies.data(), 0};
+		}
+
+		size_t start_value_pos = 0;
+		pos += name.length();
+		while (pos != cookies.length())
+		{
+			if (cookies[pos] == ' ' || cookies[pos] == '=')
+			{
+				// skip
+			} else if (cookies[pos] == ';')
+			{
+				break;
+			} else // value
+			{
+				if (!start_value_pos)
+				{
+					start_value_pos = pos;
+				}
+			}
+
+			++pos;
+		}
+
+		return {cookies.data() + start_value_pos, pos - start_value_pos};
+	};
 private:
-}
+};
 
 
 class MainResource : public Server::Resource 
@@ -182,7 +217,7 @@ public:
 			(void*)"", MHD_RESPMEM_MUST_COPY); 
 
 		assert(temp_redirect);
-		assert(MHD_add_response_header(response, MHD_HTTP_HEADER_LOCATION, "/login") == MHD_YES);
+		assert(MHD_add_response_header(temp_redirect, MHD_HTTP_HEADER_LOCATION, "/login") == MHD_YES);
 
 		redirect_to_login_response.reset(temp_redirect);
 	};
@@ -190,17 +225,26 @@ public:
 	MHD_Result DoGET(struct MHD_Connection* connection,
 		const char* url) override
 	{
-		if ((cookie = MHD_lookup_connection_value(
-			connection, MHD_HTTP_COOKIE_KIND, "Cookie")) != NULL)
+		bool is_ok = true;
+		if ((const char* cookies = MHD_lookup_connection_value(
+			connection, MHD_COOKIE_KIND, "Cookie")) != NULL)
 		{
-			auto found_session = session_list.FindSession(cookie);
-			if (!found_session || !found_session->verificate)  // invalid cookie
-			{
-				return 
-					MHD_queue_response(connection, 303, redirect_to_login_response.get());
-			}
+			// super slow
+			MainResource::sessions_list.ExpireSession();
 
-		} else 
+			// string view is pointer and size_t
+			std::string_view session_id = PostDataUtils::FindCookieValuebyName(cookies, "__Secure-sessionid");
+
+			if (!session_id.empty())
+			{
+				auto found_session = MainResource::sessions_list.FindSession(session_id);
+				if (!found_session || !found_session->verificate) { is_ok = false; }
+
+			} else { is_ok = false; }
+
+		} else { is_ok = false; }
+		
+		if (!is_ok)
 		{
 			return 
 				MHD_queue_response(connection, 303, redirect_to_login_response.get());
@@ -209,17 +253,16 @@ public:
 		return SendFile(connection, MHD_HTTP_OK, filename);
 	};
 
-
 public:
 
 	~MainResource() noexcept{};
 
 private:
 	const std::string filename;
-	std::unique_ptr<MHD_Response, ResponseDestroyer> redirect_to_login_response;
+	std::unique_ptr<MHD_Response, hidden::ResponseDestroyer> redirect_to_login_response;
 
-	// static server_db;
-	// static SessionList sessions;
+	static serverDB server_db;
+	static SessionsList sessions_list;
 };
 
 /////////////////////////////========================///////////////
@@ -236,7 +279,6 @@ public:
 	RegistrationResource(const char* _url, const std::string& _filename)
 		: Resource(_url)
 		, filename(_filename)
-		, curr_session(nullptr)
 	{
 		assert (fs::exists(_filename) == true);
 
@@ -244,7 +286,7 @@ public:
 			(void*)"", MHD_RESPMEM_MUST_COPY); 
 
 		assert(temp_redirect);
-		assert(MHD_add_response_header(response, MHD_HTTP_HEADER_LOCATION, "/") == MHD_YES);
+		assert(MHD_add_response_header(temp_redirect, MHD_HTTP_HEADER_LOCATION, "/") == MHD_YES);
 
 		redirect_to_main_response.reset(temp_redirect);
 	};
@@ -364,10 +406,10 @@ public:
 		int db_exec_code = 0;
 		if (strcmp(url, "/login") == 0)
 		{
-			db_exec_code = server_db.AccessParticipant(member);
+			db_exec_code = MainResource::server_db.AccessParticipant(member);
 		} else if (strcmp(url, "/registration") == 0)
 		{
-			db_exec_code = server_db.AddParticipant(member);
+			db_exec_code = MainResource::server_db.AddParticipant(member);
 		}
 
 		// if we don't call queue_response 
@@ -375,15 +417,15 @@ public:
 		if (db_exec_code != serverDB::DB_OK)
 		{
 			http_code_t http_response_code = 400;
-			std::string db_bad_message = DBErrorStrInfo(db_exec_code);
-			return SendContentAsHTML(connection, db_bad_message, http_code);
+			std::string db_bad_message = DBErrorStrInfo(db_exec_code, http_response_code);
+			return SendContentAsHTML(connection, db_bad_message, http_response_code);
 		}
 
 		Session* new_session = new Session();
 
 		new_session.CreateSessionCookie(std::chrono::hours{1});
 
-		session_list.AddSession(new_session);
+		MainResource::sessions_list.AddSession(new_session);
 
 		MHD_Response* all_ok_response 
 			= MHD_create_response_from_buffer(0, (void*)"", MHD_RESPMEM_MUST_COPY);
@@ -391,9 +433,9 @@ public:
 		// we can use put method
 		char cookie_str[129];
 
-		std::string expired_http_date = curr_session.ExpiredTimeToHTTPDate();
+		std::string expired_http_date = new_session.ExpiredTimeToHTTPDate();
 
-		snprintf(cookie_str, 129, "sessionid=%s; Expires= %s; Path=/", new_session->sid, expired_http_date.c_str());
+		snprintf(cookie_str, 129, ", __Secure-sessionid=%s; Expires= %s; Path=/", new_session->cookie, expired_http_date.c_str());
 		MHD_add_response_header(all_ok_response, MHD_HTTP_HEADER_SET_COOKIE, cookie_str);
 		MHD_add_response_header(all_ok_response, MHD_HTTP_HEADER_LOCATION, "/");
 
@@ -408,36 +450,6 @@ public:
 
 		return lazy_ret;
 
-	};
-
-	class PostProcessorDestroyer
-	{
-	public:
-		auto operator()(MHD_PostProcessor* pp) const noexcept
-			-> decltype(MHD_destroy_post_processor(pp)) 
-		{
-			if (pp)
-			{
-				return MHD_destroy_post_processor(pp);
-			}
-
-			return MHD_YES;
-		};
-	};
-
-	class ResponseDestroyer
-	{
-	public:
-		auto operator()(MHD_Response* response) const noexcept
-			-> decltype(MHD_destroy_response(response))
-		{
-			if (response)
-			{
-				return MHD_destroy_response(response);
-			}
-
-			return MHD_YES;
-		}
 	};
 
 private: // methods
@@ -461,13 +473,13 @@ private: // methods
 		}
 
 		MHD_PostProcessor* temp_pp = MHD_create_post_processor(
-			conn, kPostBufferSize, 
-			&RegistrationPostResource::PostIterator, 
+			conn, 512, 
+			&RegistrationResource::PostIterator, 
 			reinterpret_cast<void*>(this));
 		
 		if (!temp_pp)
 		{
-			err_code.assign(MHD_INTERNAL_ERROR, request_category);
+			err_code.assign(MHD_INTERNAL_ERROR, request_category{});
 			return ;
 		}
 
@@ -476,17 +488,13 @@ private: // methods
 		return; 
 	}
 
-	~CommonGetResource() noexcept{};
+	~RegistrationResource() noexcept{};
 
 private: // members
 	Participant member;
-	std::unique_ptr<MHD_PostProcessor, PostProcessorDestroyer> uniq_pp;
-	Session* curr_session;
+	std::unique_ptr<MHD_PostProcessor, hidden::PostProcessorDestroyer> uniq_pp;
 
-	std::unique_ptr<MHD_Response, ResponseDestroyer> redirect_to_main_response;
-
-	static server_db;
-	static SessionList sessions;
+	std::unique_ptr<MHD_Response, hidden::ResponseDestroyer> redirect_to_main_response;
 };
 
 int main()
@@ -494,20 +502,20 @@ int main()
 	std::locale loc("en_US.UTF-8");
 	std::locale::global(loc);
 	
-	assert(RegistrationPostResource::server_db.open(DB_PATH) == serverDB::DB_OK && "DB open error!");
+	assert(MainResource::server_db.open(DB_PATH) == serverDB::DB_OK && "DB open error!");
 
 	const uint16_t WEBSERVERPORT = 8888;
-	Server registration_server(MHD_USE_DEBUG, 
+	Server registration_server(MHD_NO_FLAG, 
 							 WEBSERVERPORT, nullptr, nullptr,
 							 MHD_OPTION_CONNECTION_TIMEOUT, 15u); // start daemon
 
 	// Resource* main_page = new MainResource("/", "../html_src/index.html")
 	// assert(registration_server.RegisterResource(main_page) == 0 && "Registration error!");
 
-	Resource* login_html_page = new CommonGetResource("/login", "../html_src/sign_in.html");
+	Resource* login_html_page = new RegistrationResource("/login", "../html_src/sign_in.html");
 	assert(registration_server.RegisterResource(login_html_page) == 0 && "Registration error!");
 
-	Resource* reg_page = new CommonGetResource("/registration", "../html_src/sign_up.html");
+	Resource* reg_page = new RegistrationResource("/registration", "../html_src/sign_up.html");
 	assert(registration_server.RegisterResource(reg_page) == 0 && "Registration error!");
 
 	// register static folder
@@ -527,7 +535,12 @@ int main()
 		
 	// }
 
+
+
 	registration_server.StopServer(false);
+	
+	// clear resources
+	MainResource::server_db.close();
 
 	return 0;
 }	
@@ -552,23 +565,9 @@ enum MHD_Result SendFile(
 	struct MHD_Connection *connection, Session* session,
 	std::string_view page, enum MHD_ResponseMemoryMode MemoryMODE)
 {
-	return SendFile(connection, session->status_code, 
+	return SendFile(connection, 200, 
 		page, MemoryMODE);
 }
-
-namespace hidden 
-{
-
-	struct c_strComparer
-	{
-		bool operator()(const char* lhs, const char* rhs) const noexcept 
-		{
-			return std::char_traits<char>::compare(lhs, rhs, 
-				std::char_traits<char>::length(lhs)) < 0;
-		};
-	};
-
-}; // namespace hidder
 
 enum MHD_Result SendFile(
 	struct MHD_Connection *connection, uint16_t http_status_code,
